@@ -8,6 +8,7 @@ import { CameraRig } from './core/cameraRig.js';
 import { City } from './world/city.js';
 import { DayNight } from './world/dayNight.js';
 import { Car } from './vehicle/car.js';
+import { SkidMarks } from './vehicle/skidMarks.js';
 import { Traffic } from './traffic/traffic.js';
 import { TrafficRenderer } from './traffic/trafficRenderer.js';
 import { Hud } from './ui/hud.js';
@@ -37,6 +38,7 @@ export class Game {
     // Player + traffic
     this.car = new Car(scene, this.input, this.layout);
     this.car.controls.enabled = false; // until Start is pressed
+    this.skidMarks = new SkidMarks(scene);
     this.traffic = new Traffic(this.layout, CONFIG.traffic.count);
     this.trafficRenderer = new TrafficRenderer(scene, this.traffic);
 
@@ -84,6 +86,7 @@ export class Game {
     on('mute', () => this.hud.toast(this.audio.toggleMute() ? 'Sound off' : 'Sound on'));
     on('reset', () => {
       this.car.resetToRoad();
+      this.skidMarks.last[0] = this.skidMarks.last[1] = null;
       this.cameraRig.snap();
       this.hud.toast('Car reset');
     });
@@ -133,6 +136,7 @@ export class Game {
     const night = this.dayNight.night;
     const headlights = THREE.MathUtils.smoothstep(night, 0.3, 0.6);
     car.syncVisual(dt, headlights);
+    if (dt > 0) this.skidMarks.update(p);
     this.cameraRig.update(dt);
     this.dayNight.update(dt, car.position, this.camera);
     this.city.update(night);

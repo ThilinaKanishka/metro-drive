@@ -69,7 +69,7 @@ export class Hud {
       const hh = String(Math.floor(t)).padStart(2, '0');
       const mm = String(Math.floor((t % 1) * 60)).padStart(2, '0');
       this.statusEl.textContent =
-        `${hh}:${mm}${state.autoCycle ? '' : ' (paused)'}   ${state.cameraLabel}\n` +
+        `${hh}:${mm}${state.autoCycle ? '' : ' (time frozen)'}   ${state.cameraLabel}\n` +
         `Traffic: ${state.trafficCount}   Sound: ${state.muted ? 'off' : 'on'}`;
     }
 
