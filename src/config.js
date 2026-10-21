@@ -103,7 +103,7 @@ export const CONFIG = {
     chaseLookAhead: 4,
     chaseStiffness: 6,         // positional smoothing
     speedFovBoost: 14,         // extra FOV at top speed
-    cockpitOffset: [-0.36, 1.12, -0.1], // relative to car (x = driver side)
+    cockpitOffset: [0.36, 1.18, -0.2], // driver eye in car space (+x = left seat, LHD)
     topHeight: 70,
     cinematicRadius: 18,
     cinematicHeight: 7,

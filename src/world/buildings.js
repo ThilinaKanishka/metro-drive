@@ -115,9 +115,9 @@ function patchWindowShader(material) {
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.12, 0.14, 0.17), shop * 0.85);
           // Night lighting: random windows, warm/cool tints.
           float lit = step(0.6, rnd);
-          vec3 warm = mix(vec3(1.0, 0.78, 0.45), vec3(0.75, 0.85, 1.0), step(0.85, rnd));
-          totalEmissiveRadiance += win * lit * uNight * warm * (0.35 + 0.55 * rnd);
-          totalEmissiveRadiance += shop * uNight * vec3(1.0, 0.85, 0.6) * 0.9;
+          vec3 warm = mix(vec3(1.0, 0.68, 0.32), vec3(0.6, 0.75, 1.0), step(0.88, rnd));
+          totalEmissiveRadiance += win * lit * uNight * warm * (0.25 + 0.45 * rnd);
+          totalEmissiveRadiance += shop * step(0.5, rnd) * uNight * vec3(1.0, 0.75, 0.45) * 0.3;
         }`,
       );
   };

@@ -40,7 +40,7 @@ export class CameraRig {
 
   next() {
     this.modeIndex = (this.modeIndex + 1) % CAMERA_MODES.length;
-    this.car.model.interior.visible = true;
+    this.car.model.setCockpit(this.mode === 'cockpit');
     this.camera.up.set(0, 1, 0);
     this.snap();
     return this.label;

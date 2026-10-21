@@ -41,6 +41,11 @@ export class DayNight {
     scene.add(this.sky);
 
     this._sunDir = new THREE.Vector3();
+    this._moonDir = new THREE.Vector3();
+    this._u = new THREE.Vector3();
+    this._w = new THREE.Vector3();
+    this._snap = new THREE.Vector3();
+    this._worldUp = new THREE.Vector3(0, 1, 0);
     this._top = new THREE.Color();
     this._horizon = new THREE.Color();
     this._tmp = new THREE.Color();
@@ -98,6 +103,20 @@ export class DayNight {
     return mesh;
   }
 
+  _snapToTexel(p, dir) {
+    const texel = (CONFIG.render.shadowArea * 2) / CONFIG.render.shadowMapSize;
+    // Orthonormal basis perpendicular to the light direction.
+    const u = this._u.crossVectors(this._worldUp, dir);
+    if (u.lengthSq() < 1e-6) u.set(1, 0, 0);
+    u.normalize();
+    const w = this._w.crossVectors(dir, u).normalize();
+    const pu = p.dot(u);
+    const pw = p.dot(w);
+    return this._snap.copy(p)
+      .addScaledVector(u, Math.round(pu / texel) * texel - pu)
+      .addScaledVector(w, Math.round(pw / texel) * texel - pw);
+  }
+
   /** Jump toward the opposite part of the day (N key), smoothly. */
   toggle() {
     const target = this.night > 0.5 ? 0.45 : 0.95; // morning-ish day, or late night
@@ -150,7 +169,7 @@ export class DayNight {
 
     // Key light: sun by day, dim blue moonlight from the opposite side at night.
     const isMoon = elev < -0.02;
-    const lightDir = isMoon ? this._sunDir.clone().negate() : this._sunDir;
+    const lightDir = isMoon ? this._moonDir.copy(this._sunDir).negate() : this._sunDir;
     if (isMoon) {
       this.sun.color.set(0x8fa6d8);
       this.sun.intensity = 0.35 * smoothstep(0.02, 0.25, -elev);
@@ -158,15 +177,17 @@ export class DayNight {
       this.sun.color.set(0xffffff).lerp(this._tmp.set(0xffb070), dawn * 0.8);
       this.sun.intensity = 2.8 * smoothstep(-0.02, 0.2, elev);
     }
-    this.hemi.intensity = lerp(0.18, 1.05, day);
+    this.hemi.intensity = lerp(0.32, 1.05, day);
     this.hemi.color.copy(this._top).lerp(this._tmp.set(0xffffff), 0.4);
     this.hemi.groundColor.set(0x4a4438).lerp(this._tmp.set(0x10121a), this.night);
     this.renderer.toneMappingExposure = lerp(1.15, 1.0, day);
 
-    // Shadow camera follows the focus point.
+    // Shadow camera follows the focus point, snapped to whole shadow-map
+    // texels in light space so shadow edges don't shimmer while driving.
     if (focus) {
-      this.sun.target.position.copy(focus);
-      this.sun.position.copy(focus).addScaledVector(lightDir, 150);
+      const snapped = this._snapToTexel(focus, lightDir);
+      this.sun.target.position.copy(snapped);
+      this.sun.position.copy(snapped).addScaledVector(lightDir, 150);
       this.sun.target.updateMatrixWorld();
     }
     if (camera) this.sky.position.copy(camera.position);

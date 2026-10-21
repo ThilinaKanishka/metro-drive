@@ -64,6 +64,7 @@ export class Game {
   /** Called from the Start button (a user gesture, so audio may start). */
   start() {
     this.started = true;
+    document.body.classList.add('playing');
     this.input.enabled = true;
     this.car.controls.enabled = true;
     this.audio.start();

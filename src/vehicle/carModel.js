@@ -41,7 +41,8 @@ export function getCarGeometries() {
     [[0.95, 0.9], [0.18, 1.34], [-1.05, 1.34], [-1.82, 0.95]],
     1.62, 0.04,
   );
-  const roof = new THREE.BoxGeometry(1.5, 0.05, 1.18).translate(0, 1.37, -0.44);
+  // Extrusions are non-indexed, so de-index the box before merging.
+  const roof = new THREE.BoxGeometry(1.5, 0.05, 1.18).translate(0, 1.37, -0.44).toNonIndexed();
   const paint = mergeGeometries([body, roof]);
 
   // Dark trim: bumpers + side skirts.
@@ -65,8 +66,9 @@ export const WHEEL_POSITIONS = [
   [0.8, 1.32, true], [-0.8, 1.32, true],
   [0.8, -1.3, false], [-0.8, -1.3, false],
 ];
-export const HEADLIGHT_POSITIONS = [[0.6, 0.66, 2.17], [-0.6, 0.66, 2.17]];
-export const TAILLIGHT_POSITIONS = [[0.62, 0.74, -2.17], [-0.62, 0.74, -2.17]];
+// Lamps sit just proud of the bevelled body surface.
+export const HEADLIGHT_POSITIONS = [[0.6, 0.66, 2.2], [-0.6, 0.66, 2.2]];
+export const TAILLIGHT_POSITIONS = [[0.62, 0.74, -2.23], [-0.62, 0.74, -2.23]];
 
 /** The player's car: full hierarchy with steerable wheels and real headlights. */
 export function createPlayerCar(color = CONFIG.player.color) {
@@ -115,18 +117,46 @@ export function createPlayerCar(color = CONFIG.player.color) {
     beams.push(spot);
   }
 
-  // Simple interior, visible through the glass and from the cockpit camera.
+  // Interior visible through the glass from outside.
   const interiorMat = new THREE.MeshStandardMaterial({ color: 0x24262b, roughness: 0.9 });
   const interior = new THREE.Group();
-  const dash = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.22, 0.45), interiorMat);
-  dash.position.set(0, 0.92, 0.72);
-  const wheelRing = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.025, 6, 16), interiorMat);
-  wheelRing.position.set(CONFIG.camera.cockpitOffset[0], 0.95, 0.42);
-  wheelRing.rotation.x = -0.35;
+  const dash = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.3, 0.6), interiorMat);
+  dash.position.set(0, 0.88, 0.7);
   const seats = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.5, 0.5), interiorMat);
-  seats.position.set(0, 0.75, -0.35);
-  interior.add(dash, wheelRing, seats);
+  seats.position.set(0, 0.9, -0.55);
+  interior.add(dash, seats);
   body.add(interior);
+
+  // Cockpit-only parts (shown while the exterior shell is hidden): a hood
+  // slice, A-pillars, door cards, floor, headliner and the steering wheel.
+  const cockpit = new THREE.Group();
+  cockpit.visible = false;
+  const hood = new THREE.Mesh(
+    extrudeProfile([[0.92, 0.6], [2.1, 0.6], [2.18, 0.62], [2.05, 0.8], [0.92, 0.93]], 1.84, 0.06),
+    paintMat.clone(),
+  );
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x1b1c20, roughness: 0.9 });
+  const headlinerMat = new THREE.MeshStandardMaterial({ color: 0x6a6d73, roughness: 1 });
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 0.9), darkMat);
+  floor.position.set(0, 0.55, 0.0);
+  const headliner = new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.03, 1.28), headlinerMat);
+  headliner.position.set(0, 1.335, -0.42);
+  cockpit.add(hood, floor, headliner);
+  for (const side of [1, -1]) {
+    const door = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.5, 2.0), interiorMat);
+    door.position.set(side * 0.88, 0.75, -0.15);
+    const a = new THREE.Vector3(side * 0.8, 0.95, 0.92);
+    const b = new THREE.Vector3(side * 0.72, 1.35, 0.16);
+    const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.06, a.distanceTo(b)), darkMat);
+    pillar.position.copy(a).add(b).multiplyScalar(0.5);
+    pillar.lookAt(b);
+    cockpit.add(door, pillar);
+  }
+  const wheelRing = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.026, 6, 18), darkMat);
+  wheelRing.position.set(CONFIG.camera.cockpitOffset[0], 1.0, 0.36);
+  wheelRing.rotation.x = -0.5;
+  cockpit.add(wheelRing);
+  body.add(cockpit);
 
   // Wheels: pivot (steering, yaw) -> spinner (rolling, pitch).
   const tyreMat = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 });
@@ -149,13 +179,24 @@ export function createPlayerCar(color = CONFIG.player.color) {
     wheels,
     interior,
     steeringWheel: wheelRing,
+    /**
+     * Swap between exterior shell and cockpit interior. The shell stops
+     * writing colour/depth but still renders into the shadow map, so the car
+     * keeps its shadow in cockpit view.
+     */
+    setCockpit(on) {
+      cockpit.visible = on;
+      for (const m of [paintMat, glassMat]) {
+        m.colorWrite = !on;
+        m.depthWrite = !on && m !== glassMat;
+      }
+    },
     /** headlights: 0..1 (fades in at dusk), braking: bool. */
     setLights(headlights, braking) {
       headMat.emissiveIntensity = 0.2 + headlights * 3;
-      for (const b of beams) {
-        b.intensity = headlights * 60;
-        b.visible = headlights > 0.01;
-      }
+      // Never toggle .visible on lights: changing the light count forces every
+      // material to recompile (a visible hitch at dusk). Fade intensity instead.
+      for (const b of beams) b.intensity = headlights * 60;
       tailMat.emissiveIntensity = braking ? 4 : 0.3 + headlights * 1.2;
     },
   };
