@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#0d1118" />
+    <title>Metro Drive</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <canvas id="minimap" width="200" height="200"></canvas>
+      <div id="fps" class="hidden">-- FPS</div>
+      <div id="status"></div>
+      <div id="speedo">
+        <canvas id="speedo-canvas" width="220" height="220"></canvas>
+      </div>
+      <div id="toast"></div>
+    </div>
+
+    <!-- Touch controls (shown on touch devices) -->
+    <div id="touch" class="hidden">
+      <div class="touch-left">
+        <button data-key="left" aria-label="Steer left">◀</button>
+        <button data-key="right" aria-label="Steer right">▶</button>
+      </div>
+      <div class="touch-right">
+        <button data-key="handbrake" class="small" aria-label="Handbrake">HB</button>
+        <button data-key="down" aria-label="Brake / reverse">▼</button>
+        <button data-key="up" class="gas" aria-label="Accelerate">▲</button>
+      </div>
+      <div class="touch-top">
+        <button data-action="camera">CAM</button>
+        <button data-action="daynight">☾</button>
+        <button data-action="mute">♪</button>
+        <button data-action="reset">R</button>
+        <button data-action="pause">II</button>
+      </div>
+    </div>
+
+    <!-- Start screen -->
+    <div id="start" class="overlay">
+      <div class="panel">
+        <h1>METRO<span>DRIVE</span></h1>
+        <p class="tagline">A procedural low-poly city. Drive it.</p>
+        <div class="controls">
+          <div><kbd>W</kbd><kbd>↑</kbd> Accelerate</div>
+          <div><kbd>S</kbd><kbd>↓</kbd> Brake / Reverse</div>
+          <div><kbd>A</kbd><kbd>D</kbd> Steer</div>
+          <div><kbd>Space</kbd> Handbrake</div>
+          <div><kbd>C</kbd> Camera</div>
+          <div><kbd>N</kbd> Day / Night</div>
+          <div><kbd>T</kbd> Auto time cycle</div>
+          <div><kbd>M</kbd> Mute</div>
+          <div><kbd>R</kbd> Reset car</div>
+          <div><kbd>P</kbd> Pause</div>
+          <div><kbd>F</kbd> FPS counter</div>
+        </div>
+        <button id="start-btn" disabled>Loading…</button>
+      </div>
+    </div>
+
+    <!-- Pause screen -->
+    <div id="pause" class="overlay hidden">
+      <div class="panel small">
+        <h2>Paused</h2>
+        <p>Press <kbd>P</kbd> or tap to resume</p>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,163 @@
+:root {
+  --bg: #0d1118;
+  --panel: rgba(14, 18, 26, 0.82);
+  --text: #eef2f7;
+  --muted: #9aa6b5;
+  --accent: #ff5a3c;
+  --line: rgba(255, 255, 255, 0.12);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+#app, #app canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+.hidden { display: none !important; }
+
+/* ---------- Overlays ---------- */
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: radial-gradient(ellipse at center, rgba(13, 17, 24, 0.55), rgba(13, 17, 24, 0.9));
+  z-index: 20;
+}
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 28px 32px;
+  max-width: 560px;
+  width: 100%;
+  text-align: center;
+  backdrop-filter: blur(6px);
+}
+.panel.small { max-width: 320px; }
+h1 { margin: 0; font-size: clamp(34px, 8vw, 54px); letter-spacing: 0.08em; font-weight: 800; }
+h1 span { color: var(--accent); margin-left: 0.2em; }
+h2 { margin: 0 0 8px; }
+.tagline { color: var(--muted); margin: 6px 0 20px; }
+.controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 18px;
+  text-align: left;
+  font-size: 14px;
+  margin-bottom: 22px;
+}
+kbd {
+  display: inline-block;
+  min-width: 24px;
+  padding: 2px 6px;
+  margin-right: 4px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  font: 600 12px ui-monospace, monospace;
+  text-align: center;
+}
+#start-btn {
+  font: 700 16px system-ui, sans-serif;
+  letter-spacing: 0.06em;
+  padding: 13px 34px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+}
+#start-btn:disabled { opacity: 0.5; cursor: wait; }
+
+/* ---------- HUD ---------- */
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+#minimap {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+}
+#speedo { position: absolute; right: 16px; bottom: 16px; width: 200px; height: 200px; }
+#speedo canvas { width: 100%; height: 100%; }
+#fps {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  font: 600 13px ui-monospace, monospace;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+#status {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  font: 600 12px ui-monospace, monospace;
+  color: var(--muted);
+  background: rgba(0, 0, 0, 0.35);
+  padding: 6px 10px;
+  border-radius: 6px;
+  white-space: pre;
+}
+#toast {
+  position: absolute;
+  top: 18%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.55);
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+#toast.show { opacity: 1; }
+
+/* ---------- Touch controls ---------- */
+#touch { position: fixed; inset: 0; z-index: 15; pointer-events: none; }
+#touch button {
+  pointer-events: auto;
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  background: rgba(20, 24, 32, 0.45);
+  color: white;
+  font-size: 24px;
+  touch-action: none;
+}
+#touch button.active { background: rgba(255, 90, 60, 0.6); }
+#touch button.gas { width: 86px; height: 86px; }
+#touch button.small { width: 58px; height: 58px; font-size: 14px; }
+.touch-left { position: absolute; left: 16px; bottom: 20px; display: flex; gap: 14px; }
+.touch-right { position: absolute; right: 16px; bottom: 20px; display: flex; gap: 12px; align-items: flex-end; }
+.touch-top { position: absolute; top: 16px; left: 16px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 60vw; }
+#touch .touch-top button { width: 44px; height: 44px; font-size: 12px; border-radius: 10px; }
+
+/* When touch controls show, move the speedo/minimap out of the way. */
+body.touch #speedo { right: 50%; transform: translateX(50%); bottom: 8px; width: 150px; height: 150px; }
+body.touch #minimap { width: 120px; height: 120px; }
+body.touch #status { display: none; }
+
+@media (max-width: 560px) {
+  .panel { padding: 22px 18px; }
+  .controls { font-size: 12px; gap: 6px 10px; }
+}
