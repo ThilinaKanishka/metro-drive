@@ -171,7 +171,7 @@ export class Weather {
     // (The asphalt shader handles its own wet sheen and puddles via uWet.)
     roadUniforms.uWet.value = this.wet;
     for (const m of Object.values(this.roadMats)) {
-      m.envMapIntensity = 0.42 + this.wet * 0.6;
+      m.envMapIntensity = 0.3 - this.wet * 0.08;
       if (m === this.roadMats.asphalt) continue;
       const dry = m.userData.dry;
       m.color.copy(dry.color).multiplyScalar(1 - this.wet * 0.35);

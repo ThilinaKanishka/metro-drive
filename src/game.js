@@ -27,6 +27,8 @@ import { StreetProps } from './world/props.js';
 import { CityAudio } from './audio/cityAudio.js';
 import { Vegetation } from './world/vegetation.js';
 import { CityDetails } from './world/cityDetails.js';
+import { Effects } from './fx/effects.js';
+import { installHeightFog } from './world/heightFog.js';
 import { SettingsMenu } from './ui/settings.js';
 import { PostFX } from './core/post.js';
 import { Hud } from './ui/hud.js';
@@ -46,6 +48,7 @@ import { loadPrefs, savePrefs } from './core/storage.js';
  */
 export class Game {
   constructor(container) {
+    installHeightFog();
     this.started = false;
     this.state = 'menu';
     this.prefs = loadPrefs();
@@ -73,6 +76,7 @@ export class Game {
     this.props = new StreetProps(scene, this.layout); // after parking, before pedestrians (idle spots)
     this.vegetation = new Vegetation(scene, this.layout, this.city.trees);
     this.details = new CityDetails(scene, this.layout);
+    this.effects = new Effects(scene, this.layout);
     this.peds = new Pedestrians(this.layout, this.lights);
     this.peds.populate(this.car.physics.x, this.car.physics.z);
     this.pedRenderer = new PedestrianRenderer(scene, this.peds);
@@ -568,6 +572,7 @@ export class Game {
     if (impact > 1.5) {
       this.audio.impact(impact);
       this.cameraRig.addShake(Math.min(impact / 15, 0.8));
+      if (impact > 5 && car.impactPoint) this.effects.impact(car.impactPoint.x, car.impactPoint.z, impact);
       if (this.state === 'playing' && car.applyCrash(impact) > 0.05) {
         this.score.add(-CONFIG.missions.crashPenalty, 'Crash');
         this.missions.onCrash();
@@ -579,7 +584,7 @@ export class Game {
     // Headlights on at night and in rain / fog.
     const headlights = Math.max(THREE.MathUtils.smoothstep(night, 0.3, 0.6), this.weather.gloom);
     car.syncVisual(dt, headlights);
-    if (dt > 0) this.skidMarks.update(p);
+    if (dt > 0) this.skidMarks.update(p, dt);
     this.cameraRig.update(dt);
     this.dayNight.update(dt, car.position, this.camera);
     this.weather.update(dt, this.dayNight);
@@ -604,6 +609,8 @@ export class Game {
     this.characters.update(dt);
     this.pedRenderer.update(dt, this.camera);
     car.damage.update(dt, car, this.renderer.domElement.clientHeight);
+    this.effects.update(dt, car, this.weather.rain, this.camera.position, this.renderer.domElement.clientHeight);
+    car.model.windshield.update(dt, this.weather.rain);
     this.time += dt;
     if (this.state === 'playing') {
       this.missions.update(dt, p.speed, this.time);

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { getVehicleShape, getUnitGeometries, extrudeProfile } from './vehicleShapes.js';
+import { createWindshield } from './windshield.js';
 
 /**
  * The player's car: full hierarchy built from a procedural vehicle shape,
@@ -169,6 +170,8 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
   wheelRing.position.set(ck.eye[0], ck.wheel[0], ck.wheel[1]);
   wheelRing.rotation.x = -0.5;
   cockpit.add(wheelRing);
+  const windshield = createWindshield(ck);
+  cockpit.add(windshield.group);
   body.add(cockpit);
 
   // Wheels: pivot (steering, yaw) -> spinner (rolling, pitch).
@@ -204,6 +207,7 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
     beams,
     reflective: [paintMat, glassMat, rimMat, hood.material],
     steeringWheel: wheelRing,
+    windshield,
     setColor(c) {
       paintMat.color.set(c);
       hood.material.color.set(c);

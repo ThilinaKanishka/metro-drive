@@ -4,9 +4,13 @@ const MAX_MARKS = 800;     // ring buffer size (oldest marks are overwritten)
 const MIN_STEP = 0.3;      // metres between marks
 const WIDTH = 0.24;
 
+const FADE_START = 12;     // seconds before a mark starts to fade
+const FADE_END = 25;       // fully gone
+
 /**
  * Tyre marks left by the rear wheels while sliding. One InstancedMesh used
- * as a ring buffer, so marks cost a single draw call.
+ * as a ring buffer, so marks cost a single draw call. Each mark stores its
+ * birth time; the shader fades old marks out.
  */
 export class SkidMarks {
   constructor(scene) {
@@ -15,6 +19,25 @@ export class SkidMarks {
       color: 0x111111, transparent: true, opacity: 0.45, depthWrite: false,
       polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
     });
+    this.birth = new Float32Array(MAX_MARKS).fill(-1e6);
+    this.birthAttr = new THREE.InstancedBufferAttribute(this.birth, 1);
+    geo.setAttribute('aBirth', this.birthAttr);
+    this.time = { value: 0 };
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = this.time;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>
+          attribute float aBirth;
+          uniform float uTime;
+          varying float vFade;`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          vFade = 1.0 - smoothstep(${FADE_START.toFixed(1)}, ${FADE_END.toFixed(1)}, uTime - aBirth);`);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>
+          varying float vFade;`)
+        .replace('#include <opaque_fragment>', `#include <opaque_fragment>
+          gl_FragColor.a *= vFade;`);
+    };
     this.mesh = new THREE.InstancedMesh(geo, mat, MAX_MARKS);
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
@@ -30,7 +53,8 @@ export class SkidMarks {
   }
 
   /** Call every frame with the car physics state. */
-  update(phys) {
+  update(phys, dt = 0) {
+    this.time.value += dt;
     const sliding = phys.skid > 0.35 && phys.speed > 2;
     if (!sliding) {
       this.last[0] = this.last[1] = null;
@@ -62,6 +86,8 @@ export class SkidMarks {
     this._q.setFromAxisAngle(this._up, yaw);
     this._m.compose(this._p.set(x, 0.025, z), this._q, this._s.set(WIDTH, 1, len + 0.05));
     this.mesh.setMatrixAt(this.next, this._m);
+    this.birth[this.next] = this.time.value;
+    this.birthAttr.needsUpdate = true;
     this.next = (this.next + 1) % MAX_MARKS;
     this.mesh.count = Math.min(this.mesh.count + 1, MAX_MARKS);
     this.mesh.instanceMatrix.needsUpdate = true;

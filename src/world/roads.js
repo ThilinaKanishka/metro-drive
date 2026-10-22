@@ -282,11 +282,11 @@ function patchAsphalt(material, layout) {
         diffuseColor.rgb *= 1.0 - track * 0.12;
         // Puddles in hollows when wet.
         float puddle = smoothstep(0.56, 0.62, texture2D(uNoise, vRoadPos.xz * 0.018).g) * uWet;
-        diffuseColor.rgb *= 1.0 - puddle * 0.4 - uWet * 0.18;`)
+        diffuseColor.rgb *= 1.0 - puddle * 0.6 - uWet * 0.18;`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         roughnessFactor = mix(roughnessFactor, roughnessFactor * 0.8, track);
         roughnessFactor = mix(roughnessFactor, 0.45, uWet * 0.6);
-        roughnessFactor = mix(roughnessFactor, 0.03, puddle);`)
+        roughnessFactor = mix(roughnessFactor, 0.2, puddle);`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         normal = normalize(mix(normal, nonPerturbedNormal, puddle));`);
   };
