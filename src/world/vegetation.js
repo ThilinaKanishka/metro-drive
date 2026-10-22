@@ -29,7 +29,8 @@ export class Vegetation {
     addWind(this.material, 0.8);
     this.staticMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, flatShading: true });
 
-    for (const mesh of proceduralTrees.children.flatMap((g) => g.children)) this._chunk(mesh.userData.chunk, mesh, 'far');
+    this.foliage = true;
+    for (const mesh of proceduralTrees.userData.city.children.flatMap((g) => g.children)) this._chunk(mesh.userData.chunk, mesh, 'far');
     if (n.tree_default) this._buildTrees(n);
     this.details = [];
     this._buildParks(n);
@@ -77,6 +78,7 @@ export class Vegetation {
       }
       models.forEach((geo, k) => {
         const g = chunkedInstances(geo, this.material, per[k], {
+          chunk: 200, // same grid as the procedural trees
           onMesh: (mesh) => {
             mesh.castShadow = true;
             mesh.receiveShadow = true;
@@ -169,16 +171,21 @@ export class Vegetation {
     }
   }
 
+  /** Quality: detailed trees and small foliage on / off (Low turns them off). */
+  setFoliage(on) {
+    this.foliage = on;
+  }
+
   /** Per frame: tree LOD per chunk, distance culling of small foliage. */
   update(eye) {
     for (const ch of this.chunks.values()) {
-      const near = ch.near.length > 0 && Math.hypot(ch.center.x - eye.x, ch.center.z - eye.z) < TREE_NEAR;
+      const near = this.foliage && ch.near.length > 0 && Math.hypot(ch.center.x - eye.x, ch.center.z - eye.z) < TREE_NEAR;
       for (const m of ch.near) m.visible = near;
       for (const m of ch.far) m.visible = !near;
     }
     for (const m of this.details) {
       const c = m.boundingSphere.center;
-      m.visible = Math.hypot(c.x - eye.x, c.z - eye.z) < m.userData.maxDist + m.boundingSphere.radius;
+      m.visible = this.foliage && Math.hypot(c.x - eye.x, c.z - eye.z) < m.userData.maxDist + m.boundingSphere.radius;
     }
   }
 }

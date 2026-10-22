@@ -5,7 +5,7 @@
  * returns there.
  */
 const ROWS = [
-  { key: 'quality', label: 'Graphics', options: [['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra']] },
+  { key: 'quality', label: 'Graphics', options: [['auto', 'Auto'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra']] },
   { key: 'volume', label: 'Volume', range: true },
   { key: 'density', label: 'Traffic', options: [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']] },
   { key: 'time', label: 'Time of day', options: [['auto', 'Cycle'], ['day', 'Day'], ['night', 'Night']] },

@@ -164,7 +164,9 @@ export class Damage {
         this.sLife[k] = 1;
       }
     }
+    let alive = 0;
     for (let k = 0; k < MAX_SMOKE; k++) {
+      if (this.sLife[k] > 0) alive++;
       if (this.sLife[k] <= 0) {
         this.sAlpha[k] = 0;
         continue;
@@ -179,6 +181,7 @@ export class Damage {
       this.sSize[k] = 0.6 + (1 - life) * 2.4;
       this.sAlpha[k] = life * 0.55;
     }
+    this.smoke.visible = alive > 0;
     const g = this.smoke.geometry;
     g.attributes.position.needsUpdate = true;
     g.attributes.size.needsUpdate = true;

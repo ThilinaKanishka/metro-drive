@@ -31,6 +31,7 @@ import { Effects } from './fx/effects.js';
 import { installHeightFog } from './world/heightFog.js';
 import { SettingsMenu } from './ui/settings.js';
 import { PostFX } from './core/post.js';
+import { AutoQuality } from './core/autoQuality.js';
 import { Hud } from './ui/hud.js';
 import { Minimap } from './ui/minimap.js';
 import { setupTouchControls } from './ui/touch.js';
@@ -141,13 +142,22 @@ export class Game {
     // Settings (persisted); touch devices default to Low graphics.
     const touch = window.matchMedia('(pointer: coarse)').matches;
     this.settings = {
-      quality: touch ? 'low' : 'medium',
+      quality: 'auto',
       volume: CONFIG.audio.masterVolume,
       density: this.prefs.density ?? CONFIG.traffic.defaultDensity,
       time: 'auto',
       weather: this.prefs.weather ?? CONFIG.weather.default,
       ...this.prefs.settings,
     };
+    this.auto = new AutoQuality({
+      start: touch ? 'low' : 'medium',
+      apply: (level) => this._applyQuality(level),
+      setScale: (scale) => {
+        CONFIG.render.renderScale = scale;
+        this._resize();
+      },
+      notify: (text) => this.hud.toast(text, 2),
+    });
     this.settingsMenu = new SettingsMenu({
       onChange: (patch) => this.applySettings(patch),
       onClose: () => this._closeSettings(),
@@ -419,40 +429,10 @@ export class Game {
     const changed = (k) => initial || prev[k] !== st[k];
 
     if (changed('quality')) {
-      const q = CONFIG.quality[st.quality] || CONFIG.quality.medium;
-      CONFIG.render.maxPixelRatio = q.pixelRatio;
-      CONFIG.render.renderScale = q.renderScale ?? 1;
-      CONFIG.render.fogFar = q.drawDistance;
-      this._resize();
-      if (this.renderer.shadowMap.enabled !== q.shadows) {
-        this.renderer.shadowMap.enabled = q.shadows;
-        // Shadow on/off changes shader programs: recompile everything once.
-        this.scene.traverse((o) => {
-          if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true;
-        });
-      }
-      this.dayNight.setShadowMapSize(q.shadowMapSize, q.shadowArea);
-      // Medium re-renders the sun's shadow map every other frame.
-      this.shadowRate = q.shadowRate ?? 1;
-      this.renderer.shadowMap.autoUpdate = this.shadowRate === 1;
-      this.renderer.shadowMap.needsUpdate = true;
-      this.trafficRenderer.drawDistance = q.drawDistance * 0.8;
-      this.trafficRenderer.detailDistance = q.drawDistance * 0.35;
-      this.traffic.countScale = q.trafficScale;
-      this.traffic.radiusScale = q.drawDistance / 420;
-      this.peds.setCount(q.pedestrians);
-      this.peds.cfg.drawDistance = q.pedDrawDistance;
-      this.peds.cfg.animDistance = q.pedDrawDistance * 0.5;
-      this.characters.maxNear = q.characters ?? 0;
-      if (!this.characters.maxNear) this.characters.clear();
-      this.headlightShadows = q.headlightShadow;
-      this.headlightMode = q.headlights;
-      this.car.model.setHeadlightMode(q.headlights);
-      this.car.model.setHeadlightShadow(q.headlightShadow);
-      this.env.setMode(q.ibl);
-      this.dayNight.fullIbl = q.ibl === 'full';
-      this.post.configure(q.post);
-      this._warmUpShaders();
+      // Auto: start from a preset and let AutoQuality adapt while driving.
+      this.auto.enabled = st.quality === 'auto';
+      if (this.auto.enabled) this.auto.level = this.auto.start;
+      this._applyQuality(this.auto.enabled ? this.auto.level : st.quality);
     }
     if (changed('volume')) this.audio.setVolume(st.volume);
     if (changed('density')) {
@@ -470,6 +450,46 @@ export class Game {
       this.weather.set(st.weather);
       if (initial) this.weather.snap();
     }
+  }
+
+  /** Apply a graphics preset (also used by Auto quality to step up / down). */
+  _applyQuality(level) {
+    const q = CONFIG.quality[level] || CONFIG.quality.medium;
+    CONFIG.render.maxPixelRatio = q.pixelRatio;
+    CONFIG.render.renderScale = q.renderScale ?? 1;
+    CONFIG.render.fogFar = q.drawDistance;
+    this._resize();
+    if (this.renderer.shadowMap.enabled !== q.shadows) {
+      this.renderer.shadowMap.enabled = q.shadows;
+      // Shadow on/off changes shader programs: recompile everything once.
+      this.scene.traverse((o) => {
+        if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true;
+      });
+    }
+    this.dayNight.setShadowMapSize(q.shadowMapSize, q.shadowArea);
+    // Medium re-renders the sun's shadow map every other frame.
+    this.shadowRate = q.shadowRate ?? 1;
+    this.renderer.shadowMap.autoUpdate = this.shadowRate === 1;
+    this.renderer.shadowMap.needsUpdate = true;
+    this.trafficRenderer.drawDistance = q.drawDistance * 0.8;
+    this.trafficRenderer.detailDistance = q.drawDistance * 0.35;
+    this.traffic.countScale = q.trafficScale;
+    this.traffic.radiusScale = q.drawDistance / 420;
+    this.peds.setCount(q.pedestrians);
+    this.peds.cfg.drawDistance = q.pedDrawDistance;
+    this.peds.cfg.animDistance = q.pedDrawDistance * 0.5;
+    this.vegetation.setFoliage(q.foliage !== false);
+    this.characters.maxNear = q.characters ?? 0;
+    if (!this.characters.maxNear) this.characters.clear();
+    this.headlightShadows = q.headlightShadow;
+    this.headlightMode = q.headlights;
+    this.car.model.setHeadlightMode(q.headlights);
+    this.car.model.setHeadlightShadow(q.headlightShadow);
+    this.env.setMode(q.ibl);
+    this.dayNight.fullIbl = q.ibl === 'full';
+    this.post.configure(q.post);
+    this._warmUpShaders();
+    this.auto.reset(q.renderScale ?? 1);
   }
 
   /** Settings screen from the main menu ('menu') or the pause menu ('pause'). */
@@ -617,6 +637,7 @@ export class Game {
       this.score.updateDrift(dt, p);
     }
 
+    if (this.state === 'playing') this.auto.update(frameDt);
     if (this.state === 'playing' || this.state === 'paused') {
       this.hud.update(frameDt, {
         redline: car.cfg.redlineRpm,

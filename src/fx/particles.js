@@ -80,6 +80,7 @@ export class Particles {
 
   update(dt, viewportHeight) {
     this.material.uniforms.scale.value = viewportHeight * 0.5;
+    this.points.visible = this.active > 0;
     if (!this.active || dt <= 0) return;
     const drag = Math.max(0, 1 - this.drag * dt);
     let alive = 0;

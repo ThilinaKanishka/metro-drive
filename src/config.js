@@ -193,7 +193,7 @@ export const CONFIG = {
   quality: {
     low: {
       shadows: false, shadowMapSize: 1024, shadowArea: 50, pixelRatio: 1, renderScale: 0.8, headlightShadow: false,
-      headlights: 'decal', ibl: 'cars', characters: 0,
+      headlights: 'decal', ibl: 'cars', characters: 0, foliage: false,
       pedestrians: 50, trafficScale: 0.7, drawDistance: 300, pedDrawDistance: 80,
       post: { enabled: false },
     },

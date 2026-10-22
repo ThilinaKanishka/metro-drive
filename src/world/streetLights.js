@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { chunkedInstances } from './chunks.js';
 
 /**
@@ -39,8 +40,9 @@ export function buildStreetLights(layout) {
   const up = new THREE.Vector3(0, 1, 0);
 
   // Instanced in spatial chunks so only nearby lamps reach the shadow map.
+  // Pole and arm share a material: one merged geometry (one draw per chunk).
+  const postGeo = mergeGeometries([poleGeo, armGeo.clone().translate(0, poleH - 0.1, 0)].map((g) => g.index ? g.toNonIndexed() : g));
   const poleItems = [];
-  const armItems = [];
   const headItems = [];
   const poolItems = [];
   lights.forEach((l) => {
@@ -50,17 +52,15 @@ export function buildStreetLights(layout) {
     const hx = l.x + l.nx * armLen;
     const hz = l.z + l.nz * armLen;
     poleItems.push({ x: l.x, z: l.z, matrix: m.compose(p.set(l.x, 0, l.z), q, s.set(1, 1, 1)).clone() });
-    armItems.push({ x: l.x, z: l.z, matrix: m.compose(p.set(l.x, poleH - 0.1, l.z), q, s).clone() });
     headItems.push({ x: l.x, z: l.z, matrix: m.compose(p.set(hx, poleH - 0.18, hz), q, s).clone() });
     poolItems.push({ x: l.x, z: l.z, matrix: m.compose(p.set(hx, 0.04, hz), q, s.set(13, 1, 13)).clone() });
   });
   const cast = (mesh) => { mesh.castShadow = true; };
   group.add(
-    chunkedInstances(poleGeo, metal, poleItems, { onMesh: cast }),
-    chunkedInstances(armGeo, metal, armItems, { onMesh: cast }),
-    chunkedInstances(headGeo, headMat, headItems),
+    chunkedInstances(postGeo, metal, poleItems, { chunk: 200, onMesh: cast }),
+    chunkedInstances(headGeo, headMat, headItems, { chunk: 200 }),
   );
-  const pools = chunkedInstances(poolGeo, poolMat, poolItems, { onMesh: (mesh) => { mesh.renderOrder = 2; } });
+  const pools = chunkedInstances(poolGeo, poolMat, poolItems, { chunk: 200, onMesh: (mesh) => { mesh.renderOrder = 2; } });
   group.add(pools);
 
   return {
