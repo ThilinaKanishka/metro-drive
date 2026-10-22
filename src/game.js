@@ -11,6 +11,7 @@ import { Car } from './vehicle/car.js';
 import { SkidMarks } from './vehicle/skidMarks.js';
 import { Traffic } from './traffic/traffic.js';
 import { TrafficRenderer } from './traffic/trafficRenderer.js';
+import { TrafficLights } from './traffic/trafficLights.js';
 import { Hud } from './ui/hud.js';
 import { Minimap } from './ui/minimap.js';
 import { setupTouchControls } from './ui/touch.js';
@@ -46,8 +47,12 @@ export class Game {
     this.car = new Car(scene, this.input, this.layout, this.prefs.car, this.prefs.color);
     this.car.controls.enabled = false; // until Start is pressed
     this.skidMarks = new SkidMarks(scene);
-    this.traffic = new Traffic(this.layout, CONFIG.traffic.count);
+    this.lights = new TrafficLights(scene, this.layout);
+    this.traffic = new Traffic(this.layout, this.lights);
+    this.traffic.setDensity(this.prefs.density ?? CONFIG.traffic.defaultDensity);
+    this.traffic.populate(this.car.physics.x, this.car.physics.z);
     this.trafficRenderer = new TrafficRenderer(scene, this.traffic);
+    this.traffic.onHonk = (v) => this._aiHonk(v);
 
     // Camera, UI, audio
     this.cameraRig = new CameraRig(camera, this.car, this.layout);
@@ -66,7 +71,7 @@ export class Game {
     this._bindActions();
     handleResize(this.renderer, camera, () => this.garage.resize());
 
-    this._player = { x: 0, z: 0 };
+    this._player = { x: 0, z: 0, heading: 0, vx: 0, vz: 0 };
     this.loop = new Loop({
       fixedUpdate: (dt) => this.fixedUpdate(dt),
       update: (dt, frameDt) => this.update(dt, frameDt),
@@ -139,6 +144,8 @@ export class Game {
   restart() {
     this.car.spawn();
     this.skidMarks.clear();
+    this.traffic.clear();
+    this.traffic.populate(this.car.physics.x, this.car.physics.z);
     this.cameraRig.snap();
     this.setPaused(false);
     this.hud.toast('Restarted');
@@ -180,16 +187,41 @@ export class Game {
       else if (this.state === 'paused') this.setPaused(false);
     });
     on('fps', () => this.hud.toggleFps());
+    on('horn', () => this.audio.honk(1, this.car.cfg.mass < 800 ? 1.5 : 1));
+    on('indicatorLeft', () => this.car.toggleIndicator(-1));
+    on('indicatorRight', () => this.car.toggleIndicator(1));
 
     const click = (id, fn) => document.getElementById(id).addEventListener('click', fn);
     click('pause-resume', () => this.setPaused(false));
     click('pause-garage', () => this.openGarage('pause'));
     click('pause-restart', () => this.restart());
     click('pause-quit', () => this.quitToMenu());
+    const densityBtn = document.getElementById('pause-density');
+    const showDensity = () => { densityBtn.textContent = `Traffic: ${this.traffic.density}`; };
+    densityBtn.addEventListener('click', () => {
+      const levels = Object.keys(CONFIG.traffic.density);
+      this.setDensity(levels[(levels.indexOf(this.traffic.density) + 1) % levels.length]);
+      showDensity();
+    });
+    showDensity();
     // Auto-pause when the tab is hidden.
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.state === 'playing') this.setPaused(true);
     });
+  }
+
+  setDensity(level) {
+    this.traffic.setDensity(level);
+    savePrefs({ density: this.traffic.density });
+  }
+
+  /** An AI vehicle honks: volume falls off with distance to the player. */
+  _aiHonk(v) {
+    const p = this.car.physics;
+    const d = Math.hypot(v.x - p.x, v.z - p.z);
+    const pitch = v.shape.type === 'bus' || v.shape.type === 'truck' ? 0.7
+      : v.shape.type === 'motorbike' || v.shape.type === 'tuktuk' ? 1.5 : 1;
+    this.audio.honk(Math.min(1, 12 / Math.max(d, 4)) * 0.8, pitch, 0.35);
   }
 
   setPaused(paused) {
@@ -216,9 +248,17 @@ export class Game {
     const p = car.physics;
 
     // AI traffic sees the player as an obstacle.
-    this._player.x = p.x;
-    this._player.z = p.z;
-    this.traffic.update(dt, this._player);
+    const pl = this._player;
+    pl.x = p.x;
+    pl.z = p.z;
+    pl.heading = p.heading;
+    pl.vx = p.vx;
+    pl.vz = p.vz;
+    this.lights.update(dt);
+    this.traffic.update(dt, pl);
+    if (this.state === 'playing' && this.lights.checkPlayer(p.x, p.z, p.vx, p.vz)) {
+      this.hud.toast(`Red light! -${CONFIG.trafficLights.redLightPenalty}`, 2);
+    }
     if (car.lastHit) {
       car.lastHit.bumped = 1.5; // AI car stops briefly after being hit
       car.lastHit = null;
@@ -238,7 +278,7 @@ export class Game {
     this.cameraRig.update(dt);
     this.dayNight.update(dt, car.position, this.camera);
     this.city.update(night);
-    this.trafficRenderer.update(night);
+    this.trafficRenderer.update(night, this.camera.position, dt);
 
     if (this.state === 'playing' || this.state === 'paused') {
       this.hud.update(frameDt, {
@@ -249,7 +289,7 @@ export class Game {
         timeOfDay: this.dayNight.time,
         autoCycle: this.dayNight.autoCycle,
         cameraLabel: this.cameraRig.label,
-        trafficCount: this.traffic.cars.length,
+        trafficCount: this.traffic.vehicles.length,
         muted: this.audio.muted,
       });
       this.minimap.update(p, this.traffic.cars);

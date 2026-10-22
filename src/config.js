@@ -117,16 +117,38 @@ export const CONFIG = {
   },
 
   traffic: {
-    count: 34,
-    minSpeedKmh: 30,
-    maxSpeedKmh: 50,
+    // Moving vehicles kept alive around the player, per density setting.
+    density: { low: 18, medium: 34, high: 56 },
+    defaultDensity: 'medium',
+    spawnRadius: [85, 230],    // new vehicles appear in this ring around the player
+    despawnRadius: 270,        // and are recycled beyond this distance
     turnSpeedKmh: 18,
-    acceleration: 4,           // m/s^2
-    braking: 9,
-    safeDistance: 9,           // start slowing when a car is closer than this
-    stopDistance: 5,
-    intersectionWaitTimeout: 4,// seconds before a waiting car proceeds anyway
+    // Intelligent Driver Model: smooth following and stopping.
+    minGap: 2.2,               // bumper-to-bumper gap when stopped (m)
+    headway: 1.3,              // desired time gap to the vehicle ahead (s)
+    emergencyBraking: 9,       // hard cap on deceleration (m/s^2)
+    indicatorDistance: 35,     // start indicating this far before a turn
+    honkDelay: 2.5,            // seconds blocked by the player before honking
+    intersectionWaitTimeout: 4,// unsignalised junctions: proceed after waiting this long
+    parkedChance: 0.16,         // chance a kerb between two junctions has parked cars
     colors: [0xd23a3a, 0x2f6fd6, 0xf2f2f2, 0x222428, 0xf0c419, 0x3aa856, 0x8a8f99, 0xe07b2a, 0x5b3fa8],
+    // AI vehicle mix. speed in km/h; accel / decel = IDM comfortable rates (m/s^2).
+    types: {
+      car: { weight: 44, shapes: ['sedan', 'hatchback', 'suv', 'pickup', 'sports'], speed: [34, 52], accel: 2.6, decel: 4 },
+      taxi: { weight: 10, shapes: ['taxi'], colors: [0xf2c419], speed: [36, 52], accel: 2.6, decel: 4 },
+      bus: { weight: 6, shapes: ['bus'], colors: [0x2f6fd6, 0xd23a3a, 0x3aa856, 0xe8e8e4], speed: [28, 40], accel: 1.2, decel: 3 },
+      truck: { weight: 8, shapes: ['truck'], colors: [0xd23a3a, 0x2f6fd6, 0xf2f2f2, 0x3aa856], speed: [30, 44], accel: 1.3, decel: 3 },
+      motorbike: { weight: 14, shapes: ['motorbike'], speed: [40, 58], accel: 3.6, decel: 5.5 },
+      tuktuk: { weight: 18, shapes: ['tuktuk'], colors: [0x2e8b57, 0xf2c419, 0x8b1e2d, 0x1f5fbf, 0x222428], speed: [26, 40], accel: 1.8, decel: 3.5 },
+    },
+  },
+
+  trafficLights: {
+    green: 12,                 // seconds per axis
+    yellow: 3,
+    allRed: 1.5,
+    walkFlash: 4,              // last seconds of green: "don't start crossing"
+    redLightPenalty: 100,      // score lost for running a red light
   },
 
   audio: {

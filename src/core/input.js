@@ -19,6 +19,9 @@ const ACTIONS = {
   Escape: 'pause',
   KeyF: 'fps',
   KeyT: 'cycle',
+  KeyH: 'horn',
+  KeyQ: 'indicatorLeft',
+  KeyE: 'indicatorRight',
 };
 
 export class Input {

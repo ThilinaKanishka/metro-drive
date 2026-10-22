@@ -177,6 +177,35 @@ export class EngineSound {
     this.windGain.gain.setTargetAtTime(wind * wind * 0.35, t, 0.2);
   }
 
+  /**
+   * Car horn: two detuned square waves through a band-pass (the classic
+   * dual-tone horn). volume 0..1 (distance attenuated by the caller),
+   * pitch scales the tones (small vehicles beep higher, buses lower).
+   */
+  honk(volume = 1, pitch = 1, duration = 0.45) {
+    if (!this.ready || volume < 0.02) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 900 * pitch;
+    bp.Q.value = 1.2;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.28 * volume, t + 0.02);
+    g.gain.setValueAtTime(0.28 * volume, t + duration - 0.05);
+    g.gain.linearRampToValueAtTime(0, t + duration);
+    bp.connect(g).connect(this.master);
+    for (const f of [400, 500]) {
+      const o = ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.value = f * pitch;
+      o.connect(bp);
+      o.start(t);
+      o.stop(t + duration + 0.02);
+    }
+  }
+
   /** Collision thump; strength in m/s of impact speed. */
   impact(strength) {
     if (!this.ready || strength < 1.5) return;
