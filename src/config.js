@@ -190,15 +190,15 @@ export const CONFIG = {
    */
   quality: {
     low: {
-      shadows: false, shadowMapSize: 1024, pixelRatio: 1, headlightShadow: false,
+      shadows: false, shadowMapSize: 1024, shadowArea: 50, pixelRatio: 1, headlightShadow: false,
       pedestrians: 50, trafficScale: 0.7, drawDistance: 300, pedDrawDistance: 80,
     },
     medium: {
-      shadows: true, shadowMapSize: 2048, pixelRatio: 1.5, headlightShadow: false,
+      shadows: true, shadowMapSize: 2048, shadowArea: 60, pixelRatio: 1.5, headlightShadow: false,
       pedestrians: 110, trafficScale: 1, drawDistance: 420, pedDrawDistance: 120,
     },
     high: {
-      shadows: true, shadowMapSize: 4096, pixelRatio: 2, headlightShadow: true,
+      shadows: true, shadowMapSize: 4096, shadowArea: 85, pixelRatio: 2, headlightShadow: true,
       pedestrians: 180, trafficScale: 1.3, drawDistance: 560, pedDrawDistance: 160,
     },
   },

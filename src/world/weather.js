@@ -155,6 +155,13 @@ export class Weather {
     fog.near = lerp(lerp(CONFIG.render.fogNear, this.cfg.fogNear, this.fog), CONFIG.render.fogNear * 0.6, this.rain * (1 - this.fog));
     fog.far = lerp(lerp(CONFIG.render.fogFar, this.cfg.fogFar, this.fog), this.cfg.rainFogFar, this.rain * (1 - this.fog));
     this.fogFar = fog.far;
+    // Thicker, lower clouds and a hazier atmosphere in bad weather.
+    const sp = dayNight.skySystem.params;
+    sp.cloudCoverage = lerp(0.32, 0.95, overcast);
+    sp.cloudDensity = lerp(0.45, 0.9, overcast);
+    sp.turbidity = lerp(2.4, 9, overcast);
+    sp.rayleigh = lerp(1.1, 0.4, overcast);
+    this.overcast = overcast;
     // Clouds block the sun: softer, dimmer key light, more flat ambient.
     dayNight.sun.intensity *= 1 - overcast * 0.65;
     dayNight.hemi.intensity *= 1 - overcast * 0.15;
@@ -163,8 +170,8 @@ export class Weather {
     for (const m of Object.values(this.roadMats)) {
       const dry = m.userData.dry;
       m.color.copy(dry.color).multiplyScalar(1 - this.wet * 0.35);
-      m.roughness = lerp(dry.roughness, 0.28, this.wet);
-      m.envMapIntensity = this.wet * (m.userData.envStrength ?? 1) * (1 - night * 0.6);
+      m.roughness = lerp(dry.roughness, 0.4, this.wet);
+      m.envMapIntensity = 0.42 + this.wet * 0.25;
     }
 
     // Rain streaks.

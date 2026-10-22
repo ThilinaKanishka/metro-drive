@@ -83,16 +83,14 @@ export class Game {
     // Weather + reflections (car paint / glass, wet roads).
     const roadMats = this.city.roads.userData.materials;
     this.weather = new Weather(scene, camera, roadMats);
-    this.env = new ReflectionEnvironment(this.renderer);
+    // Sky env map = scene.environment (IBL + reflections for every PBR
+    // material); wet roads get it explicitly so the weather can drive them.
+    this.env = new ReflectionEnvironment(this.renderer, scene, this.dayNight.skySystem);
     for (const m of Object.values(roadMats)) {
       m.userData.envManual = true;
-      this.env.add(m, m === roadMats.asphalt ? 0.9 : 0.5);
+      this.env.add(m);
     }
-    this.env.add(this.trafficRenderer.materials.paint, 0.8);
-    this.env.add(this.trafficRenderer.materials.glass, 1);
-    this._carEnvMats = [];
-    this.car.onModelChange = (model) => this._registerCarEnv(model);
-    this._registerCarEnv(this.car.model);
+    this.car.onModelChange = (model) => model.setHeadlightShadow(!!this.headlightShadows);
     this.garage = new Garage(this.renderer, {
       onDrive: (id, color) => this._garageDrive(id, color),
       onBack: () => this._garageBack(),
@@ -164,13 +162,6 @@ export class Game {
       this.missions.setMode(this.mode);
     }
     this.cameraRig.snap();
-  }
-
-  _registerCarEnv(model) {
-    for (const m of this._carEnvMats) this.env.remove(m);
-    this._carEnvMats = model.reflective;
-    for (const m of this._carEnvMats) this.env.add(m, 1);
-    model.setHeadlightShadow(!!this.headlightShadows);
   }
 
   /** Main menu mode selector. */
@@ -338,7 +329,7 @@ export class Game {
           if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true;
         });
       }
-      this.dayNight.setShadowMapSize(q.shadowMapSize);
+      this.dayNight.setShadowMapSize(q.shadowMapSize, q.shadowArea);
       this.trafficRenderer.drawDistance = q.drawDistance * 0.8;
       this.trafficRenderer.detailDistance = q.drawDistance * 0.35;
       this.traffic.countScale = q.trafficScale;
@@ -482,7 +473,7 @@ export class Game {
     this.cameraRig.update(dt);
     this.dayNight.update(dt, car.position, this.camera);
     this.weather.update(dt, this.dayNight);
-    this.env.update(this.dayNight.skyUniforms.topColor.value, this.dayNight.skyUniforms.horizonColor.value, night);
+    this.env.update(this.dayNight.sunDir, night, this.weather.overcast ?? 0);
     this.city.update(night);
     this.props.update(night);
     this.trafficRenderer.update(night, this.camera.position, dt);
