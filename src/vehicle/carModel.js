@@ -58,6 +58,21 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
     addLamps([L.indFront[side], L.indRear[side]], indMats[side]);
   }
 
+  // Additive glow sprites over the lamps (brake lights flare when braking).
+  const glowTex = getGlowTexture();
+  const glowSprite = (color, [x, y, z], size, out) => {
+    const m = new THREE.SpriteMaterial({
+      map: glowTex, color, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending,
+    });
+    const s = new THREE.Sprite(m);
+    s.position.set(x, y, z + out);
+    s.scale.setScalar(size);
+    body.add(s);
+    return s;
+  };
+  const tailGlows = L.tail.map((p) => glowSprite(0xff2a1a, p, 0.9, -0.08));
+  const headGlows = L.head.map((p) => glowSprite(0xfff1d0, p, 1.3, 0.1));
+
   // Real headlight beams (no shadows by default: cheap enough for one car).
   const beams = [];
   const beamPower = 120 / L.head.length;
@@ -160,6 +175,7 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
      */
     setCockpit(on) {
       cockpit.visible = on;
+      for (const g of headGlows) g.visible = !on;
       for (const m of [paintMat, glassMat, secondaryMat]) {
         m.colorWrite = !on;
         m.depthWrite = !on && m !== glassMat;
@@ -176,17 +192,42 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
       for (const b of beams) b.intensity = headlights * beamPower;
       tailMat.emissiveIntensity = braking ? 4 : 0.3 + headlights * 1.2;
       revMat.emissiveIntensity = reversing ? 2.5 : 0;
+      for (const g of tailGlows) g.material.opacity = braking ? 0.9 : headlights * 0.35;
+      for (const g of headGlows) g.material.opacity = headlights * 0.8;
       indMats[0].emissiveIntensity = indL ? 3 : 0;
       indMats[1].emissiveIntensity = indR ? 3 : 0;
     },
+    /** Quality "High": the first beam casts shadows (one extra shadow map). */
+    setHeadlightShadow(on) {
+      beams[0].castShadow = on;
+    },
     dispose() {
       root.removeFromParent();
+      for (const g of [...tailGlows, ...headGlows]) g.material.dispose();
       paint.geometry.dispose();
       hood.geometry.dispose();
       for (const m of materials) m.dispose();
       root.traverse((o) => {
-        if (o.isMesh && o.geometry.type === 'BoxGeometry') o.geometry.dispose();
+        if (o.isMesh && (o.geometry.type === 'BoxGeometry' || o.geometry.type === 'TorusGeometry')) o.geometry.dispose();
       });
     },
   };
+}
+
+let glowTexture = null;
+function getGlowTexture() {
+  if (glowTexture) return glowTexture;
+  const size = 64;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.25, 'rgba(255,255,255,0.5)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  glowTexture = new THREE.CanvasTexture(c);
+  glowTexture.colorSpace = THREE.SRGBColorSpace;
+  return glowTexture;
 }

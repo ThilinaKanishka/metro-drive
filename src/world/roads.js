@@ -140,5 +140,7 @@ export function buildRoads(layout) {
   walls.receiveShadow = true;
   group.add(walls);
 
+  // Materials the weather system makes wet.
+  group.userData.materials = { asphalt: asphalt.material, sidewalk: sidewalkMat, markings: markMat };
   return group;
 }

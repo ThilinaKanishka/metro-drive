@@ -143,6 +143,91 @@ export const CONFIG = {
     },
   },
 
+  pedestrians: {
+    count: 120,                // people kept alive around the player
+    walkSpeed: [1.1, 1.6],     // m/s
+    runSpeed: 4.2,
+    spawnRadius: [45, 150],    // respawn ring around the player
+    despawnRadius: 180,
+    drawDistance: 120,         // not drawn beyond this
+    animDistance: 60,          // limbs animate only within this distance
+    idleChance: 0.18,          // standing at a shop front / bus stop
+    nightIdleChance: 0.4,      // more people hang around lit shops at night
+    crossChance: 0.55,         // at a corner: cross the street vs. walk on
+    scareDistance: 2.6,        // jump back if a car will pass closer than this
+    honkRadius: 22,
+    fallTime: 3.5,             // seconds lying down after being hit
+    hitPenalty: 250,
+    skin: [0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524, 0x5c3a1e, 0xffdbac],
+    hair: [0x1b1b1b, 0x3b2314, 0x6a4423, 0xb08440, 0xd9c08a, 0x8a8a8a, 0x7a1f1f],
+    tops: [0xd23a3a, 0x2f6fd6, 0xf2f2f2, 0x2b2d33, 0xf0c419, 0x3aa856, 0xe07b2a, 0x8e5bd6, 0x37b7c9, 0xe86fa8, 0x6b7a3a],
+    bottoms: [0x22262e, 0x2c3e66, 0x55463a, 0x7a7f87, 0x1d1d1d, 0x3f5d3a, 0xb8a98a],
+  },
+
+  missions: {
+    taxi: {
+      minDistance: 180,        // straight-line distance to the destination (m)
+      maxDistance: 420,
+      speedAllowance: 8,       // timer = route length / this + baseTime
+      baseTime: 25,
+      baseFare: 25,            // $
+      farePerMetre: 0.12,
+      tipPerSecond: 1.5,       // tip for each second left on the clock
+    },
+    race: {
+      seed: 4242,              // fixed route so best times compare
+      checkpoints: 10,
+      radius: 10,              // pass within this distance of a checkpoint
+      parSpeed: 14,            // m/s average used for the par time / prize
+    },
+    crashPenalty: 25,          // score lost for a damaging crash
+    repairCostPerDamage: 300,  // $ for a full repair (R)
+  },
+
+  /**
+   * Graphics presets (Settings → Graphics). drawDistance drives the fog,
+   * vehicle / pedestrian culling and the traffic spawn ring.
+   */
+  quality: {
+    low: {
+      shadows: false, shadowMapSize: 1024, pixelRatio: 1, headlightShadow: false,
+      pedestrians: 50, trafficScale: 0.7, drawDistance: 300, pedDrawDistance: 80,
+    },
+    medium: {
+      shadows: true, shadowMapSize: 2048, pixelRatio: 1.5, headlightShadow: false,
+      pedestrians: 110, trafficScale: 1, drawDistance: 420, pedDrawDistance: 120,
+    },
+    high: {
+      shadows: true, shadowMapSize: 4096, pixelRatio: 2, headlightShadow: true,
+      pedestrians: 180, trafficScale: 1.3, drawDistance: 560, pedDrawDistance: 160,
+    },
+  },
+
+  weather: {
+    default: 'random',         // 'clear' | 'rain' | 'fog' | 'random'
+    randomWeights: { clear: 0.55, rain: 0.25, fog: 0.2 },
+    transition: 5,             // seconds to blend between weather types
+    rainDrops: 3500,           // streaks in the box around the camera
+    rainRadius: 32,
+    rainGrip: 0.78,            // tyre grip multiplier on a fully wet road
+    rainTrafficSpeed: 0.85,    // AI drives slower in bad weather
+    fogNear: 12,
+    fogFar: 140,
+    rainFogFar: 280,
+  },
+
+  props: {
+    seed: 77,                  // separate RNG: the city itself stays identical
+    busStopChance: 0.1,        // per block side
+    benchChance: 0.25,
+    binChance: 0.5,
+    shopSignChance: 0.55,      // per street-facing building facade
+    shopNames: [
+      'CAFE', 'PHARMACY', 'BAKERY', 'BOOKS', 'PIZZA', 'MARKET', 'NOODLES', 'SHOES',
+      'FLOWERS', 'BANK', 'TECH', 'BARBER', 'DINER', 'GYM', 'HOTEL', 'TEA',
+    ],
+  },
+
   trafficLights: {
     green: 12,                 // seconds per axis
     yellow: 3,

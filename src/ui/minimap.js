@@ -63,8 +63,11 @@ export class Minimap {
     return c;
   }
 
-  /** player: {x, z, heading}; traffic: iterable of {x, z} */
-  update(player, traffic) {
+  /**
+   * player: {x, z, heading}; traffic: iterable of {x, z};
+   * markers: [{x, z, color}] mission targets (pinned to the rim when off-map).
+   */
+  update(player, traffic, markers = []) {
     const ctx = this.ctx;
     const s = this.px;
     const half = s / 2;
@@ -92,6 +95,38 @@ export class Minimap {
       ctx.fill();
     }
     ctx.restore();
+
+    // Mission markers, drawn in screen space so they can sit on the rim.
+    const th = player.heading - Math.PI;
+    const cos = Math.cos(th);
+    const sin = Math.sin(th);
+    for (let k = markers.length - 1; k >= 0; k--) {
+      const m = markers[k];
+      const dx = m.x - player.x;
+      const dz = m.z - player.z;
+      let sx = (dx * cos - dz * sin) * zoom;
+      let sy = (dx * sin + dz * cos) * zoom;
+      const r = Math.hypot(sx, sy);
+      const rim = half - 9;
+      const pinned = r > rim;
+      if (pinned) {
+        sx *= rim / r;
+        sy *= rim / r;
+      }
+      ctx.fillStyle = m.color;
+      ctx.strokeStyle = '#111';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(half + sx, half + sy, k === 0 ? 7 : 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      if (k === 0 && !pinned) {
+        ctx.strokeStyle = m.color;
+        ctx.beginPath();
+        ctx.arc(half + sx, half + sy, 11 + Math.sin(performance.now() / 180) * 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
 
     // Player arrow (always centred, pointing up).
     ctx.save();

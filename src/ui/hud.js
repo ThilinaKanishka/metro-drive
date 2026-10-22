@@ -29,6 +29,73 @@ export class Hud {
     this.fpsTime = 0;
     this.toastTimer = 0;
     this.statusTimer = 0;
+
+    const $ = (id) => document.getElementById(id);
+    this.el = {
+      mode: $('hud-mode'), score: $('hud-score'), money: $('hud-money'),
+      mission: $('mission'), missionTitle: $('mission-title'), missionText: $('mission-text'), missionTimer: $('mission-timer'),
+      waypoint: $('waypoint'), arrow: $('waypoint-arrow'), dist: $('waypoint-dist'),
+      countdown: $('countdown'), popups: $('popups'),
+      damage: $('damage'), damageBar: document.querySelector('#damage .bar i'),
+      indL: $('ind-left'), indR: $('ind-right'),
+    };
+    this._cache = {};
+  }
+
+  /** Set textContent / class only when the value changed (avoids DOM churn). */
+  _set(key, el, value, prop = 'textContent') {
+    if (this._cache[key] === value) return;
+    this._cache[key] = value;
+    if (prop === 'textContent') el.textContent = value;
+    else el.style[prop] = value;
+  }
+
+  setScore(mode, points, money) {
+    this._set('mode', this.el.mode, mode.toUpperCase());
+    this._set('score', this.el.score, String(points));
+    this._set('money', this.el.money, `$${money}`);
+  }
+
+  /** m: { title, text, timer?, urgent? } or null to hide. */
+  setMission(m) {
+    this.el.mission.classList.toggle('hidden', !m);
+    if (!m) return;
+    this._set('mt', this.el.missionTitle, m.title);
+    this._set('mx', this.el.missionText, m.text);
+    this._set('mtimer', this.el.missionTimer, m.timer ?? '');
+    this.el.mission.classList.toggle('urgent', !!m.urgent);
+  }
+
+  /** angle: radians relative to straight ahead (+ = right), or null to hide. */
+  setWaypoint(angle, distance) {
+    this.el.waypoint.classList.toggle('hidden', angle === null);
+    if (angle === null) return;
+    this._set('wa', this.el.arrow, `rotate(${Math.round((angle * 180) / Math.PI)}deg)`, 'transform');
+    const d = distance >= 1000 ? `${(distance / 1000).toFixed(1)} km` : `${Math.round(distance / 5) * 5} m`;
+    this._set('wd', this.el.dist, d);
+  }
+
+  countdown(text) {
+    this._set('cd', this.el.countdown, text);
+  }
+
+  popup(text, kind = 'good') {
+    const el = document.createElement('div');
+    el.className = `popup ${kind}`;
+    el.textContent = text;
+    this.el.popups.appendChild(el);
+    while (this.el.popups.children.length > 5) this.el.popups.firstChild.remove();
+    setTimeout(() => el.remove(), 2500);
+  }
+
+  setDamage(level) {
+    this._set('dmg', this.el.damageBar, `${Math.round(level * 100)}%`, 'width');
+    this.el.damage.classList.toggle('hurt', level > 0.15);
+  }
+
+  setIndicators(left, right) {
+    this.el.indL.classList.toggle('on', left);
+    this.el.indR.classList.toggle('on', right);
   }
 
   show() {

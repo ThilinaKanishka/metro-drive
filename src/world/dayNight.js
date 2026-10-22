@@ -103,8 +103,17 @@ export class DayNight {
     return mesh;
   }
 
+  /** Quality setting: resize the sun's shadow map (re-allocated on next render). */
+  setShadowMapSize(size) {
+    const sh = this.sun.shadow;
+    if (sh.mapSize.x === size) return;
+    sh.mapSize.set(size, size);
+    sh.map?.dispose();
+    sh.map = null;
+  }
+
   _snapToTexel(p, dir) {
-    const texel = (CONFIG.render.shadowArea * 2) / CONFIG.render.shadowMapSize;
+    const texel = (CONFIG.render.shadowArea * 2) / this.sun.shadow.mapSize.x;
     // Orthonormal basis perpendicular to the light direction.
     const u = this._u.crossVectors(this._worldUp, dir);
     if (u.lengthSq() < 1e-6) u.set(1, 0, 0);

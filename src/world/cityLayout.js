@@ -149,7 +149,14 @@ export class CityLayout {
         for (let k = 0; k < count; k++) {
           const x = block.cx + rng.range(-inner / 2, inner / 2);
           const z = block.cz + rng.range(-inner / 2, inner / 2);
-          this.trees.push({ x, z, scale: rng.range(0.9, 1.6), hue: rng() });
+          const scale = rng.range(0.9, 1.6);
+          const hue = rng();
+          // Keep the cross paths and the central fountain clear (the random
+          // numbers are still drawn so the rest of the city is unchanged).
+          const dx = Math.abs(x - block.cx);
+          const dz = Math.abs(z - block.cz);
+          if (dx < 2.6 || dz < 2.6 || Math.hypot(dx, dz) < 5) continue;
+          this.trees.push({ x, z, scale, hue });
           this._addCircle(bi, x, z, 0.4);
         }
       }

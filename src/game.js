@@ -12,6 +12,16 @@ import { SkidMarks } from './vehicle/skidMarks.js';
 import { Traffic } from './traffic/traffic.js';
 import { TrafficRenderer } from './traffic/trafficRenderer.js';
 import { TrafficLights } from './traffic/trafficLights.js';
+import { Pedestrians } from './people/pedestrians.js';
+import { PedestrianRenderer } from './people/pedestrianRenderer.js';
+import { carCircles } from './vehicle/collision.js';
+import { Score } from './gameplay/score.js';
+import { Missions, MODES } from './gameplay/missions.js';
+import { Weather } from './world/weather.js';
+import { ReflectionEnvironment } from './world/environment.js';
+import { StreetProps } from './world/props.js';
+import { CityAudio } from './audio/cityAudio.js';
+import { SettingsMenu } from './ui/settings.js';
 import { Hud } from './ui/hud.js';
 import { Minimap } from './ui/minimap.js';
 import { setupTouchControls } from './ui/touch.js';
@@ -53,6 +63,12 @@ export class Game {
     this.traffic.populate(this.car.physics.x, this.car.physics.z);
     this.trafficRenderer = new TrafficRenderer(scene, this.traffic);
     this.traffic.onHonk = (v) => this._aiHonk(v);
+    this.props = new StreetProps(scene, this.layout); // after parking, before pedestrians (idle spots)
+    this.peds = new Pedestrians(this.layout, this.lights);
+    this.peds.populate(this.car.physics.x, this.car.physics.z);
+    this.pedRenderer = new PedestrianRenderer(scene, this.peds);
+    this.traffic.peds = this.peds.list;
+    this.peds.onHit = (ped, speed) => this._pedestrianHit(ped, speed);
 
     // Camera, UI, audio
     this.cameraRig = new CameraRig(camera, this.car, this.layout);
@@ -62,16 +78,60 @@ export class Game {
     this.minimap = new Minimap(this.layout);
     this.audio = new EngineSound();
     this.audio.setProfile(this.car.cfg.sound, this.car.cfg.redlineRpm);
+    this.cityAudio = new CityAudio(this.audio);
+
+    // Weather + reflections (car paint / glass, wet roads).
+    const roadMats = this.city.roads.userData.materials;
+    this.weather = new Weather(scene, camera, roadMats);
+    this.env = new ReflectionEnvironment(this.renderer);
+    for (const m of Object.values(roadMats)) {
+      m.userData.envManual = true;
+      this.env.add(m, m === roadMats.asphalt ? 0.9 : 0.5);
+    }
+    this.env.add(this.trafficRenderer.materials.paint, 0.8);
+    this.env.add(this.trafficRenderer.materials.glass, 1);
+    this._carEnvMats = [];
+    this.car.onModelChange = (model) => this._registerCarEnv(model);
+    this._registerCarEnv(this.car.model);
     this.garage = new Garage(this.renderer, {
       onDrive: (id, color) => this._garageDrive(id, color),
       onBack: () => this._garageBack(),
     });
     setupTouchControls(this.input);
 
-    this._bindActions();
-    handleResize(this.renderer, camera, () => this.garage.resize());
+    // Gameplay: score / money and the selected mission mode.
+    this.score = new Score(this.hud);
+    this.missions = new Missions({
+      scene, layout: this.layout, peds: this.peds, car: this.car, score: this.score, hud: this.hud,
+    });
+    this.missions.onTeleport = () => {
+      this.skidMarks.clear();
+      this.cameraRig.snap();
+    };
+    this.mode = this.prefs.mode in MODES ? this.prefs.mode : 'free';
+    this._modeStarted = null;
+    this.time = 0;
 
-    this._player = { x: 0, z: 0, heading: 0, vx: 0, vz: 0 };
+    this._bindActions();
+    this._resize = handleResize(this.renderer, camera, () => this.garage.resize());
+
+    // Settings (persisted); touch devices default to Low graphics.
+    const touch = window.matchMedia('(pointer: coarse)').matches;
+    this.settings = {
+      quality: touch ? 'low' : 'medium',
+      volume: CONFIG.audio.masterVolume,
+      density: this.prefs.density ?? CONFIG.traffic.defaultDensity,
+      time: 'auto',
+      weather: this.prefs.weather ?? CONFIG.weather.default,
+      ...this.prefs.settings,
+    };
+    this.settingsMenu = new SettingsMenu({
+      onChange: (patch) => this.applySettings(patch),
+      onClose: () => this._closeSettings(),
+    });
+    this.applySettings({}, true);
+
+    this._player = { x: 0, z: 0, heading: 0, vx: 0, vz: 0, circles: [] };
     this.loop = new Loop({
       fixedUpdate: (dt) => this.fixedUpdate(dt),
       update: (dt, frameDt) => this.update(dt, frameDt),
@@ -97,7 +157,26 @@ export class Game {
     this.audio.setPaused(false);
     this.hud.show();
     if (this.cameraRig.mode === 'cinematic') this.cameraRig.modeIndex = 0;
+    // (Re)start the mission when entering play or after changing mode.
+    if (this._modeStarted !== this.mode) {
+      this._modeStarted = this.mode;
+      this.score.resetSession();
+      this.missions.setMode(this.mode);
+    }
     this.cameraRig.snap();
+  }
+
+  _registerCarEnv(model) {
+    for (const m of this._carEnvMats) this.env.remove(m);
+    this._carEnvMats = model.reflective;
+    for (const m of this._carEnvMats) this.env.add(m, 1);
+    model.setHeadlightShadow(!!this.headlightShadows);
+  }
+
+  /** Main menu mode selector. */
+  setMode(mode) {
+    this.mode = mode in MODES ? mode : 'free';
+    savePrefs({ mode: this.mode });
   }
 
   /** Open the garage from the main menu ('menu') or the pause menu ('pause'). */
@@ -146,6 +225,10 @@ export class Game {
     this.skidMarks.clear();
     this.traffic.clear();
     this.traffic.populate(this.car.physics.x, this.car.physics.z);
+    this.peds.populate(this.car.physics.x, this.car.physics.z);
+    this.car.repair();
+    this.score.resetSession();
+    this.missions.restart();
     this.cameraRig.snap();
     this.setPaused(false);
     this.hud.toast('Restarted');
@@ -174,26 +257,45 @@ export class Game {
       this.dayNight.toggle();
       this.hud.toast(this.dayNight.night > 0.5 ? 'Sunrise…' : 'Nightfall…');
     });
-    on('cycle', () => this.hud.toast(this.dayNight.toggleAuto() ? 'Time cycle on' : 'Time cycle paused'));
+    on('cycle', () => {
+      const auto = this.dayNight.toggleAuto();
+      this.settings.time = auto ? 'auto' : this.dayNight.night > 0.5 ? 'night' : 'day';
+      savePrefs({ settings: this.settings });
+      this.hud.toast(auto ? 'Time cycle on' : 'Time cycle paused');
+    });
     on('mute', () => this.hud.toast(this.audio.toggleMute() ? 'Sound off' : 'Sound on'));
+    // R: repair any damage (paid from the wallet when possible) and put the
+    // car back on the nearest road.
     on('reset', () => {
+      const dmg = this.car.damage.level;
       this.car.resetToRoad();
       this.skidMarks.last[0] = this.skidMarks.last[1] = null;
       this.cameraRig.snap();
-      this.hud.toast('Car reset');
+      if (dmg > 0.02) {
+        this.car.repair();
+        this.score.spend(dmg * CONFIG.missions.repairCostPerDamage, 'Repair');
+        this.hud.toast('Car repaired');
+      } else {
+        this.hud.toast('Car reset');
+      }
     });
     on('pause', () => {
       if (this.state === 'playing') this.setPaused(true);
       else if (this.state === 'paused') this.setPaused(false);
     });
     on('fps', () => this.hud.toggleFps());
-    on('horn', () => this.audio.honk(1, this.car.cfg.mass < 800 ? 1.5 : 1));
+    on('horn', () => {
+      const p = this.car.physics;
+      this.audio.honk(1, this.car.cfg.mass < 800 ? 1.5 : 1);
+      this.peds.honk(p.x, p.z, p.heading);
+    });
     on('indicatorLeft', () => this.car.toggleIndicator(-1));
     on('indicatorRight', () => this.car.toggleIndicator(1));
 
     const click = (id, fn) => document.getElementById(id).addEventListener('click', fn);
     click('pause-resume', () => this.setPaused(false));
     click('pause-garage', () => this.openGarage('pause'));
+    click('pause-settings', () => this.openSettings('pause'));
     click('pause-restart', () => this.restart());
     click('pause-quit', () => this.quitToMenu());
     const densityBtn = document.getElementById('pause-density');
@@ -203,7 +305,6 @@ export class Game {
       this.setDensity(levels[(levels.indexOf(this.traffic.density) + 1) % levels.length]);
       showDensity();
     });
-    showDensity();
     // Auto-pause when the tab is hidden.
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.state === 'playing') this.setPaused(true);
@@ -211,8 +312,86 @@ export class Game {
   }
 
   setDensity(level) {
-    this.traffic.setDensity(level);
-    savePrefs({ density: this.traffic.density });
+    this.applySettings({ density: level });
+  }
+
+  /**
+   * Apply (and persist) settings. `initial` applies everything, otherwise
+   * only what changed, so e.g. moving the volume slider doesn't recompile
+   * shaders.
+   */
+  applySettings(patch, initial = false) {
+    const prev = initial ? {} : { ...this.settings };
+    const st = Object.assign(this.settings, patch);
+    savePrefs({ settings: st });
+    const changed = (k) => initial || prev[k] !== st[k];
+
+    if (changed('quality')) {
+      const q = CONFIG.quality[st.quality] || CONFIG.quality.medium;
+      CONFIG.render.maxPixelRatio = q.pixelRatio;
+      CONFIG.render.fogFar = q.drawDistance;
+      this._resize();
+      if (this.renderer.shadowMap.enabled !== q.shadows) {
+        this.renderer.shadowMap.enabled = q.shadows;
+        // Shadow on/off changes shader programs: recompile everything once.
+        this.scene.traverse((o) => {
+          if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true;
+        });
+      }
+      this.dayNight.setShadowMapSize(q.shadowMapSize);
+      this.trafficRenderer.drawDistance = q.drawDistance * 0.8;
+      this.trafficRenderer.detailDistance = q.drawDistance * 0.35;
+      this.traffic.countScale = q.trafficScale;
+      this.traffic.radiusScale = q.drawDistance / 420;
+      this.peds.setCount(q.pedestrians);
+      this.peds.cfg.drawDistance = q.pedDrawDistance;
+      this.peds.cfg.animDistance = q.pedDrawDistance * 0.5;
+      this.headlightShadows = q.headlightShadow;
+      this.car.model.setHeadlightShadow(q.headlightShadow);
+    }
+    if (changed('volume')) this.audio.setVolume(st.volume);
+    if (changed('density')) {
+      this.traffic.setDensity(st.density);
+      document.getElementById('pause-density').textContent = `Traffic: ${this.traffic.density}`;
+    }
+    if (changed('time')) {
+      const dn = this.dayNight;
+      dn.autoCycle = st.time === 'auto';
+      if (st.time === 'day') dn.time = 0.42;
+      if (st.time === 'night') dn.time = 0.92;
+      dn.transition = null;
+    }
+    if (changed('weather')) {
+      this.weather.set(st.weather);
+      if (initial) this.weather.snap();
+    }
+  }
+
+  /** Settings screen from the main menu ('menu') or the pause menu ('pause'). */
+  openSettings(from) {
+    this.settingsFrom = from;
+    this.state = 'settings';
+    document.getElementById('start').classList.add('hidden');
+    document.getElementById('pause').classList.add('hidden');
+    this.settingsMenu.open(this.settings);
+  }
+
+  _closeSettings() {
+    if (this.settingsFrom === 'pause') {
+      this.state = 'paused';
+      document.getElementById('pause').classList.remove('hidden');
+    } else {
+      this.state = 'menu';
+      document.getElementById('start').classList.remove('hidden');
+    }
+  }
+
+  /** The player knocked someone over (they get up again a few seconds later). */
+  _pedestrianHit(ped, speed) {
+    this.audio.impact(Math.min(4 + speed * 0.3, 8));
+    this.hud.toast('Watch out for pedestrians!', 2);
+    this.score.add(-CONFIG.pedestrians.hitPenalty, 'Pedestrian hit');
+    this.missions.onPedestrianHit();
   }
 
   /** An AI vehicle honks: volume falls off with distance to the player. */
@@ -222,6 +401,23 @@ export class Game {
     const pitch = v.shape.type === 'bus' || v.shape.type === 'truck' ? 0.7
       : v.shape.type === 'motorbike' || v.shape.type === 'tuktuk' ? 1.5 : 1;
     this.audio.honk(Math.min(1, 12 / Math.max(d, 4)) * 0.8, pitch, 0.35);
+  }
+
+  /** HUD arrow toward the current mission target, relative to the view direction. */
+  _updateWaypoint() {
+    const t = this.missions.target;
+    if (!t) {
+      this.hud.setWaypoint(null);
+      return;
+    }
+    const p = this.car.physics;
+    const dx = t.x - p.x;
+    const dz = t.z - p.z;
+    // View heading: the camera yaw (top-down / chase follow the car).
+    const h = this.cameraRig.mode === 'cinematic' ? p.heading : this.cameraRig.yaw;
+    const fwd = dx * Math.sin(h) + dz * Math.cos(h);
+    const right = -dx * Math.cos(h) + dz * Math.sin(h);
+    this.hud.setWaypoint(Math.atan2(right, fwd), Math.hypot(dx, dz));
   }
 
   setPaused(paused) {
@@ -236,7 +432,7 @@ export class Game {
 
   fixedUpdate(dt) {
     const p = this.car.physics;
-    this.car.fixedUpdate(dt, this.traffic.circlesNear(p.x, p.z));
+    this.car.fixedUpdate(dt, this.traffic.circlesNear(p.x, p.z), this.weather.grip);
   }
 
   update(dt, frameDt) {
@@ -254,10 +450,13 @@ export class Game {
     pl.heading = p.heading;
     pl.vx = p.vx;
     pl.vz = p.vz;
+    pl.circles = carCircles(p.x, p.z, p.heading, pl.circles, car.cfg.circles);
     this.lights.update(dt);
+    this.traffic.speedScale = this.weather.trafficSpeed;
     this.traffic.update(dt, pl);
     if (this.state === 'playing' && this.lights.checkPlayer(p.x, p.z, p.vx, p.vz)) {
-      this.hud.toast(`Red light! -${CONFIG.trafficLights.redLightPenalty}`, 2);
+      this.hud.toast('You ran a red light!', 2);
+      this.score.add(-CONFIG.trafficLights.redLightPenalty, 'Red light');
     }
     if (car.lastHit) {
       car.lastHit.bumped = 1.5; // AI car stops briefly after being hit
@@ -268,17 +467,33 @@ export class Game {
     if (impact > 1.5) {
       this.audio.impact(impact);
       this.cameraRig.addShake(Math.min(impact / 15, 0.8));
+      if (this.state === 'playing' && car.applyCrash(impact) > 0.05) {
+        this.score.add(-CONFIG.missions.crashPenalty, 'Crash');
+        this.missions.onCrash();
+      }
     }
 
     // Lighting first (other systems read the night factor).
     const night = this.dayNight.night;
-    const headlights = THREE.MathUtils.smoothstep(night, 0.3, 0.6);
+    // Headlights on at night and in rain / fog.
+    const headlights = Math.max(THREE.MathUtils.smoothstep(night, 0.3, 0.6), this.weather.gloom);
     car.syncVisual(dt, headlights);
     if (dt > 0) this.skidMarks.update(p);
     this.cameraRig.update(dt);
     this.dayNight.update(dt, car.position, this.camera);
+    this.weather.update(dt, this.dayNight);
+    this.env.update(this.dayNight.skyUniforms.topColor.value, this.dayNight.skyUniforms.horizonColor.value, night);
     this.city.update(night);
+    this.props.update(night);
     this.trafficRenderer.update(night, this.camera.position, dt);
+    this.peds.update(dt, pl, this.camera.position, night);
+    this.pedRenderer.update(dt, this.camera);
+    car.damage.update(dt, car, this.renderer.domElement.clientHeight);
+    this.time += dt;
+    if (this.state === 'playing') {
+      this.missions.update(dt, p.speed, this.time);
+      this.score.updateDrift(dt, p);
+    }
 
     if (this.state === 'playing' || this.state === 'paused') {
       this.hud.update(frameDt, {
@@ -292,8 +507,15 @@ export class Game {
         trafficCount: this.traffic.vehicles.length,
         muted: this.audio.muted,
       });
-      this.minimap.update(p, this.traffic.cars);
+      this.minimap.update(p, this.traffic.cars, this.missions.markers);
+      this.hud.setScore(MODES[this.mode], this.score.points, this.score.money);
+      this.hud.setDamage(car.damage.level);
+      this.hud.setIndicators(car.blinkOn && (car.indicator === -1 || car.indicator === 2), car.blinkOn && car.indicator >= 1);
+      this._updateWaypoint();
       this.audio.update(p.rpm, p.throttle, p.skid, p.speed);
+      let near = 0;
+      for (const v of this.traffic.vehicles) if (Math.abs(v.x - p.x) < 80 && Math.abs(v.z - p.z) < 80) near++;
+      this.cityAudio.update(frameDt, near, this.weather.rain, p.speed);
     }
   }
 }
