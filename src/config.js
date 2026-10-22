@@ -184,6 +184,31 @@ export const CONFIG = {
     repairCostPerDamage: 300,  // $ for a full repair (R)
   },
 
+  weather: {
+    default: 'random',         // 'clear' | 'rain' | 'fog' | 'random'
+    randomWeights: { clear: 0.55, rain: 0.25, fog: 0.2 },
+    transition: 5,             // seconds to blend between weather types
+    rainDrops: 3500,           // streaks in the box around the camera
+    rainRadius: 32,
+    rainGrip: 0.78,            // tyre grip multiplier on a fully wet road
+    rainTrafficSpeed: 0.85,    // AI drives slower in bad weather
+    fogNear: 12,
+    fogFar: 140,
+    rainFogFar: 280,
+  },
+
+  props: {
+    seed: 77,                  // separate RNG: the city itself stays identical
+    busStopChance: 0.1,        // per block side
+    benchChance: 0.25,
+    binChance: 0.5,
+    shopSignChance: 0.55,      // per street-facing building facade
+    shopNames: [
+      'CAFE', 'PHARMACY', 'BAKERY', 'BOOKS', 'PIZZA', 'MARKET', 'NOODLES', 'SHOES',
+      'FLOWERS', 'BANK', 'TECH', 'BARBER', 'DINER', 'GYM', 'HOTEL', 'TEA',
+    ],
+  },
+
   trafficLights: {
     green: 12,                 // seconds per axis
     yellow: 3,

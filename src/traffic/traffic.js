@@ -48,6 +48,7 @@ export class Traffic {
     this.halfRoad = layout.cfg.roadWidth / 2;
     this.density = this.cfg.defaultDensity;
     this.radiusScale = 1;      // draw-distance setting scales the spawn ring
+    this.speedScale = 1;       // weather: everyone drives a little slower in rain / fog
     this._uid = 0;
     this._circles = [];
     this.onSpawn = null;       // (vehicle) => void   (renderer hooks)
@@ -506,7 +507,7 @@ export class Traffic {
       }
 
       // ---- Desired speed (free road).
-      let v0 = car.maxSpeed;
+      let v0 = car.maxSpeed * this.speedScale;
       const turning = car.nextDir !== car.dir;
       if (car.seg.type === 'turn' && turning) v0 = turnSpeed;
       const remaining = (1 - car.t) * car.seg.length;

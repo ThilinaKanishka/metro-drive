@@ -5,7 +5,7 @@ import { CarPhysics } from './carPhysics.js';
 import { DriverControls } from './controls.js';
 import { resolveCar } from './collision.js';
 import { Damage } from './damage.js';
-import { damp, clamp } from '../core/utils.js';
+import { damp, clamp, angleDiff } from '../core/utils.js';
 
 /**
  * Player car = visual model + physics body + driver input.
@@ -116,6 +116,7 @@ export class Car {
   toggleIndicator(side) {
     this.indicator = this.indicator === side ? 0 : side;
     this.blinkTime = 0;
+    this._indicatorHeading = this.physics.heading;
     return this.indicator;
   }
 
@@ -144,8 +145,13 @@ export class Car {
     }
     steeringWheel.rotation.z = -p.steer * 4;
 
-    // Indicators blink at ~1.5 Hz.
+    // Indicators blink at ~1.5 Hz and cancel themselves once a turn is done
+    // (heading changed a lot and the wheel is back near centre).
     this.blinkTime += dt;
+    if ((this.indicator === -1 || this.indicator === 1) && Math.abs(p.steer) < 0.05
+      && Math.abs(angleDiff(this._indicatorHeading ?? p.heading, p.heading)) > 1.0) {
+      this.indicator = 0;
+    }
     const blink = this.indicator !== 0 && (this.blinkTime % 0.66) < 0.36;
     this.blinkOn = blink;
     const left = blink && (this.indicator === -1 || this.indicator === 2);

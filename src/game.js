@@ -17,6 +17,10 @@ import { PedestrianRenderer } from './people/pedestrianRenderer.js';
 import { carCircles } from './vehicle/collision.js';
 import { Score } from './gameplay/score.js';
 import { Missions, MODES } from './gameplay/missions.js';
+import { Weather } from './world/weather.js';
+import { ReflectionEnvironment } from './world/environment.js';
+import { StreetProps } from './world/props.js';
+import { CityAudio } from './audio/cityAudio.js';
 import { Hud } from './ui/hud.js';
 import { Minimap } from './ui/minimap.js';
 import { setupTouchControls } from './ui/touch.js';
@@ -58,6 +62,7 @@ export class Game {
     this.traffic.populate(this.car.physics.x, this.car.physics.z);
     this.trafficRenderer = new TrafficRenderer(scene, this.traffic);
     this.traffic.onHonk = (v) => this._aiHonk(v);
+    this.props = new StreetProps(scene, this.layout); // after parking, before pedestrians (idle spots)
     this.peds = new Pedestrians(this.layout, this.lights);
     this.peds.populate(this.car.physics.x, this.car.physics.z);
     this.pedRenderer = new PedestrianRenderer(scene, this.peds);
@@ -72,6 +77,23 @@ export class Game {
     this.minimap = new Minimap(this.layout);
     this.audio = new EngineSound();
     this.audio.setProfile(this.car.cfg.sound, this.car.cfg.redlineRpm);
+    this.cityAudio = new CityAudio(this.audio);
+
+    // Weather + reflections (car paint / glass, wet roads).
+    const roadMats = this.city.roads.userData.materials;
+    this.weather = new Weather(scene, camera, roadMats);
+    this.weather.set(this.prefs.weather ?? CONFIG.weather.default);
+    this.weather.snap();
+    this.env = new ReflectionEnvironment(this.renderer);
+    for (const m of Object.values(roadMats)) {
+      m.userData.envManual = true;
+      this.env.add(m, m === roadMats.asphalt ? 0.9 : 0.5);
+    }
+    this.env.add(this.trafficRenderer.materials.paint, 0.8);
+    this.env.add(this.trafficRenderer.materials.glass, 1);
+    this._carEnvMats = [];
+    this.car.onModelChange = (model) => this._registerCarEnv(model);
+    this._registerCarEnv(this.car.model);
     this.garage = new Garage(this.renderer, {
       onDrive: (id, color) => this._garageDrive(id, color),
       onBack: () => this._garageBack(),
@@ -127,6 +149,13 @@ export class Game {
       this.missions.setMode(this.mode);
     }
     this.cameraRig.snap();
+  }
+
+  _registerCarEnv(model) {
+    for (const m of this._carEnvMats) this.env.remove(m);
+    this._carEnvMats = model.reflective;
+    for (const m of this._carEnvMats) this.env.add(m, 1);
+    model.setHeadlightShadow(!!this.headlightShadows);
   }
 
   /** Main menu mode selector. */
@@ -313,7 +342,7 @@ export class Game {
 
   fixedUpdate(dt) {
     const p = this.car.physics;
-    this.car.fixedUpdate(dt, this.traffic.circlesNear(p.x, p.z));
+    this.car.fixedUpdate(dt, this.traffic.circlesNear(p.x, p.z), this.weather.grip);
   }
 
   update(dt, frameDt) {
@@ -333,6 +362,7 @@ export class Game {
     pl.vz = p.vz;
     pl.circles = carCircles(p.x, p.z, p.heading, pl.circles, car.cfg.circles);
     this.lights.update(dt);
+    this.traffic.speedScale = this.weather.trafficSpeed;
     this.traffic.update(dt, pl);
     if (this.state === 'playing' && this.lights.checkPlayer(p.x, p.z, p.vx, p.vz)) {
       this.hud.toast('You ran a red light!', 2);
@@ -355,12 +385,16 @@ export class Game {
 
     // Lighting first (other systems read the night factor).
     const night = this.dayNight.night;
-    const headlights = THREE.MathUtils.smoothstep(night, 0.3, 0.6);
+    // Headlights on at night and in rain / fog.
+    const headlights = Math.max(THREE.MathUtils.smoothstep(night, 0.3, 0.6), this.weather.gloom);
     car.syncVisual(dt, headlights);
     if (dt > 0) this.skidMarks.update(p);
     this.cameraRig.update(dt);
     this.dayNight.update(dt, car.position, this.camera);
+    this.weather.update(dt, this.dayNight);
+    this.env.update(this.dayNight.skyUniforms.topColor.value, this.dayNight.skyUniforms.horizonColor.value, night);
     this.city.update(night);
+    this.props.update(night);
     this.trafficRenderer.update(night, this.camera.position, dt);
     this.peds.update(dt, pl, this.camera.position, night);
     this.pedRenderer.update(dt, this.camera);
@@ -389,6 +423,9 @@ export class Game {
       this.hud.setIndicators(car.blinkOn && (car.indicator === -1 || car.indicator === 2), car.blinkOn && car.indicator >= 1);
       this._updateWaypoint();
       this.audio.update(p.rpm, p.throttle, p.skid, p.speed);
+      let near = 0;
+      for (const v of this.traffic.vehicles) if (Math.abs(v.x - p.x) < 80 && Math.abs(v.z - p.z) < 80) near++;
+      this.cityAudio.update(frameDt, near, this.weather.rain, p.speed);
     }
   }
 }
