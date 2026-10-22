@@ -44,6 +44,6 @@ export class Loop {
       if (steps === CONFIG.physics.maxSubSteps) this.accumulator = 0;
     }
     this.update(this.paused ? 0 : frameDt, frameDt);
-    this.render();
+    this.render(frameDt);
   }
 }

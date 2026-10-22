@@ -11,9 +11,14 @@ import { Sky } from 'three/addons/objects/Sky.js';
  * The map is re-rendered only when the sun has moved or the weather changed
  * noticeably (a couple of ms every few seconds of the day cycle).
  *
- * Materials registered with add() get the env map assigned explicitly so
- * their `envMapIntensity` takes effect (wet roads drive theirs from the
- * weather); everything else just uses scene.environment.
+ * Modes (quality preset):
+ *  - 'full': scene.environment = env map, IBL on every PBR material
+ *  - 'cars': only registered materials (car paint / glass / chrome, and the
+ *    roads while they are wet) get the env map; big surfaces use the cheaper
+ *    hemisphere light. Image-based lighting is costly per pixel on
+ *    integrated GPUs, and cars / wet roads are where reflections matter.
+ * Registered materials get the env map assigned explicitly so their
+ * `envMapIntensity` takes effect (wet roads drive theirs from the weather).
  */
 export class ReflectionEnvironment {
   constructor(renderer, scene, skySystem) {
@@ -26,6 +31,8 @@ export class ReflectionEnvironment {
     this._target = null;
     this._key = '';
     this.intensity = 1;
+    this.mode = 'full';
+    this.wet = 0;
 
     const env = new THREE.Scene();
     this.sky = new Sky();
@@ -51,6 +58,11 @@ export class ReflectionEnvironment {
     this.envScene = env;
   }
 
+  setMode(mode) {
+    this.mode = mode;
+    this.scene.environment = mode === 'full' ? this.texture : null;
+  }
+
   /** Register a material whose envMap / intensity are managed explicitly. */
   add(material) {
     this.materials.add(material);
@@ -62,8 +74,10 @@ export class ReflectionEnvironment {
   }
 
   _apply(m) {
-    if (m.envMap !== this.texture) {
-      m.envMap = this.texture;
+    // In 'cars' mode the (large) road surfaces only reflect while wet.
+    const tex = this.mode === 'cars' && m.userData.envManual && this.wet < 0.05 ? null : this.texture;
+    if (m.envMap !== tex) {
+      m.envMap = tex;
       m.needsUpdate = true;
     }
   }
@@ -75,6 +89,9 @@ export class ReflectionEnvironment {
     if (key !== this._key) {
       this._key = key;
       this.skySystem.copyTo(this.sky);
+      // The direct sun light already makes the highlight; a sun disc in the
+      // env map would add a second, blown-out one on every glossy surface.
+      this.sky.material.uniforms.showSunDisc.value = 0;
       const dark = 1 - night * 0.85;
       this.boxMat.color.setRGB(0.05, 0.055, 0.065).multiplyScalar(dark);
       this.groundMat.color.setRGB(0.035, 0.037, 0.042).multiplyScalar(dark);
@@ -82,7 +99,7 @@ export class ReflectionEnvironment {
       this._target?.dispose();
       this._target = target;
       this.texture = target.texture;
-      this.scene.environment = this.texture;
+      if (this.mode === 'full') this.scene.environment = this.texture;
     }
     // The sky render is already dark at night; keep a little moonlit ambient.
     this.intensity = 0.42 * (1 - overcast * 0.25);

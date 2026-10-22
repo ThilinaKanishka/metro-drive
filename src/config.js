@@ -186,20 +186,33 @@ export const CONFIG = {
 
   /**
    * Graphics presets (Settings → Graphics). drawDistance drives the fog,
-   * vehicle / pedestrian culling and the traffic spawn ring.
+   * vehicle / pedestrian culling and the traffic spawn ring; `post` selects
+   * the post-processing effects (see core/post.js).
    */
   quality: {
     low: {
-      shadows: false, shadowMapSize: 1024, shadowArea: 50, pixelRatio: 1, headlightShadow: false,
+      shadows: false, shadowMapSize: 1024, shadowArea: 50, pixelRatio: 1, renderScale: 0.8, headlightShadow: false,
+      headlights: 'decal', ibl: 'cars',
       pedestrians: 50, trafficScale: 0.7, drawDistance: 300, pedDrawDistance: 80,
+      post: { enabled: false },
     },
     medium: {
-      shadows: true, shadowMapSize: 2048, shadowArea: 60, pixelRatio: 1.5, headlightShadow: false,
+      shadows: true, shadowMapSize: 2048, shadowArea: 60, pixelRatio: 1, renderScale: 0.85, headlightShadow: false,
+      headlights: 'decal', ibl: 'cars',
       pedestrians: 110, trafficScale: 1, drawDistance: 420, pedDrawDistance: 120,
+      post: { enabled: true, aa: 'fxaa', ao: 'off', bloom: true, speedBlur: false, flare: false, grain: true },
     },
     high: {
-      shadows: true, shadowMapSize: 4096, shadowArea: 85, pixelRatio: 2, headlightShadow: true,
-      pedestrians: 180, trafficScale: 1.3, drawDistance: 560, pedDrawDistance: 160,
+      shadows: true, shadowMapSize: 4096, shadowArea: 80, pixelRatio: 1.5, headlightShadow: false,
+      headlights: 'one', ibl: 'full',
+      pedestrians: 160, trafficScale: 1.2, drawDistance: 520, pedDrawDistance: 150,
+      post: { enabled: true, aa: 'smaa', ao: 'half', bloom: true, speedBlur: true, flare: false, grain: true },
+    },
+    ultra: {
+      shadows: true, shadowMapSize: 4096, shadowArea: 100, pixelRatio: 2, headlightShadow: true,
+      headlights: 'two', ibl: 'full',
+      pedestrians: 220, trafficScale: 1.4, drawDistance: 620, pedDrawDistance: 180,
+      post: { enabled: true, aa: 'smaa', ao: 'full', bloom: true, speedBlur: true, flare: true, grain: true },
     },
   },
 

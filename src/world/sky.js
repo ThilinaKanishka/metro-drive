@@ -14,9 +14,15 @@ export class SkySystem {
     this.group = new THREE.Group();
     this.group.name = 'sky';
     this.sky = new Sky();
+    // A sphere (not the default box, whose corners would poke past the far
+    // plane) drawn LAST among opaques with depth testing: only pixels where
+    // the sky is actually visible run the scattering + cloud shader.
+    this.sky.geometry = new THREE.SphereGeometry(1, 32, 16);
     this.sky.scale.setScalar(radius);
     this.sky.frustumCulled = false;
-    this.sky.renderOrder = -2;
+    this.sky.renderOrder = 1000;
+    this.sky.material.depthTest = true;
+    this.sky.material.side = THREE.BackSide;
     this.uniforms = this.sky.material.uniforms;
     Object.assign(this.params = {}, {
       turbidity: 2.4, rayleigh: 1.1, mieCoefficient: 0.004, mieDirectionalG: 0.82,
@@ -45,7 +51,7 @@ export class SkySystem {
     });
     this.stars = new THREE.Points(sg, this.starMat);
     this.stars.frustumCulled = false;
-    this.stars.renderOrder = -1;
+    this.stars.renderOrder = 1001;
     this.group.add(this.stars);
 
     // Moon: a soft disc sprite.
@@ -54,7 +60,7 @@ export class SkySystem {
     });
     this.moon = new THREE.Sprite(this.moonMat);
     this.moon.scale.setScalar(radius * 0.06);
-    this.moon.renderOrder = -1;
+    this.moon.renderOrder = 1001;
     this.group.add(this.moon);
     this.radius = radius;
     scene.add(this.group);

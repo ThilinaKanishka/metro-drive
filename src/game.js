@@ -22,6 +22,7 @@ import { ReflectionEnvironment } from './world/environment.js';
 import { StreetProps } from './world/props.js';
 import { CityAudio } from './audio/cityAudio.js';
 import { SettingsMenu } from './ui/settings.js';
+import { PostFX } from './core/post.js';
 import { Hud } from './ui/hud.js';
 import { Minimap } from './ui/minimap.js';
 import { setupTouchControls } from './ui/touch.js';
@@ -90,7 +91,11 @@ export class Game {
       m.userData.envManual = true;
       this.env.add(m);
     }
-    this.car.onModelChange = (model) => model.setHeadlightShadow(!!this.headlightShadows);
+    this.env.add(this.trafficRenderer.materials.paint);
+    this.env.add(this.trafficRenderer.materials.glass);
+    this._carEnvMats = [];
+    this.car.onModelChange = (model) => this._onCarModel(model);
+    this._onCarModel(this.car.model);
     this.garage = new Garage(this.renderer, {
       onDrive: (id, color) => this._garageDrive(id, color),
       onBack: () => this._garageBack(),
@@ -110,8 +115,15 @@ export class Game {
     this._modeStarted = null;
     this.time = 0;
 
+    this.post = new PostFX(this.renderer, scene, camera);
+    this._sunGrid = this._buildHeightGrid();
+    this._sunVis = 1;
+
     this._bindActions();
-    this._resize = handleResize(this.renderer, camera, () => this.garage.resize());
+    this._resize = handleResize(this.renderer, camera, (w, h) => {
+      this.garage.resize();
+      this.post.setSize(w, h);
+    });
 
     // Settings (persisted); touch devices default to Low graphics.
     const touch = window.matchMedia('(pointer: coarse)').matches;
@@ -133,10 +145,7 @@ export class Game {
     this.loop = new Loop({
       fixedUpdate: (dt) => this.fixedUpdate(dt),
       update: (dt, frameDt) => this.update(dt, frameDt),
-      render: () => {
-        if (this.state === 'garage') this.garage.render();
-        else this.renderer.render(scene, camera);
-      },
+      render: (frameDt) => this._render(frameDt),
     });
     this.loop.start();
   }
@@ -162,6 +171,84 @@ export class Game {
       this.missions.setMode(this.mode);
     }
     this.cameraRig.snap();
+  }
+
+  /** A (new) player car model: reflections and headlight mode. */
+  _onCarModel(model) {
+    for (const m of this._carEnvMats) this.env.remove(m);
+    this._carEnvMats = model.reflective;
+    for (const m of this._carEnvMats) this.env.add(m);
+    model.setHeadlightMode(this.headlightMode ?? 'decal');
+    model.setHeadlightShadow(!!this.headlightShadows);
+  }
+
+  /**
+   * Compile shaders for both headlight states (light count changes the
+   * programs) so turning the lights on at dusk doesn't stall.
+   */
+  _warmUpShaders() {
+    const m = this.car.model;
+    m.forceBeams(true);
+    this.renderer.compile(this.scene, this.camera);
+    m.forceBeams(false);
+    this.renderer.compile(this.scene, this.camera);
+  }
+
+  /** Draw the frame: garage scene, post-processing chain, or plain render (Low). */
+  _render(frameDt) {
+    const r = this.renderer;
+    if (this.state === 'garage') {
+      // The garage is lit for direct ACES output.
+      const tm = r.toneMapping;
+      const ex = r.toneMappingExposure;
+      r.toneMapping = THREE.ACESFilmicToneMapping;
+      r.toneMappingExposure = 1;
+      this.garage.render();
+      r.toneMapping = tm;
+      r.toneMappingExposure = ex;
+    } else if (this.post.enabled) {
+      this.post.render(frameDt);
+    } else {
+      r.render(this.scene, this.camera);
+    }
+  }
+
+  /** Coarse max-building-height grid (4 m cells) for cheap sun occlusion rays. */
+  _buildHeightGrid() {
+    const L = this.layout;
+    const cell = 4;
+    const nx = Math.ceil(L.extentX / cell);
+    const nz = Math.ceil(L.extentZ / cell);
+    const h = new Float32Array(nx * nz);
+    for (const b of L.buildings) {
+      const top = b.y + b.h;
+      const x0 = Math.max(0, Math.floor((b.x - b.w / 2 + L.halfX) / cell));
+      const x1 = Math.min(nx - 1, Math.floor((b.x + b.w / 2 + L.halfX) / cell));
+      const z0 = Math.max(0, Math.floor((b.z - b.d / 2 + L.halfZ) / cell));
+      const z1 = Math.min(nz - 1, Math.floor((b.z + b.d / 2 + L.halfZ) / cell));
+      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) h[z * nx + x] = Math.max(h[z * nx + x], top);
+    }
+    return { cell, nx, nz, h };
+  }
+
+  /** Is the sun hidden behind a building from the camera? (ray march over the height grid) */
+  _sunVisibility() {
+    const g = this._sunGrid;
+    const L = this.layout;
+    const s = this.dayNight.sunDir;
+    if (!s || s.y <= 0) return 0;
+    const c = this.camera.position;
+    for (let d = 3; d < 400; d += 3) {
+      const x = c.x + s.x * d;
+      const y = c.y + s.y * d;
+      const z = c.z + s.z * d;
+      if (y > 75) return 1;
+      const ix = Math.floor((x + L.halfX) / g.cell);
+      const iz = Math.floor((z + L.halfZ) / g.cell);
+      if (ix < 0 || iz < 0 || ix >= g.nx || iz >= g.nz) return 1;
+      if (g.h[iz * g.nx + ix] > y) return 0;
+    }
+    return 1;
   }
 
   /** Main menu mode selector. */
@@ -320,6 +407,7 @@ export class Game {
     if (changed('quality')) {
       const q = CONFIG.quality[st.quality] || CONFIG.quality.medium;
       CONFIG.render.maxPixelRatio = q.pixelRatio;
+      CONFIG.render.renderScale = q.renderScale ?? 1;
       CONFIG.render.fogFar = q.drawDistance;
       this._resize();
       if (this.renderer.shadowMap.enabled !== q.shadows) {
@@ -338,7 +426,13 @@ export class Game {
       this.peds.cfg.drawDistance = q.pedDrawDistance;
       this.peds.cfg.animDistance = q.pedDrawDistance * 0.5;
       this.headlightShadows = q.headlightShadow;
+      this.headlightMode = q.headlights;
+      this.car.model.setHeadlightMode(q.headlights);
       this.car.model.setHeadlightShadow(q.headlightShadow);
+      this.env.setMode(q.ibl);
+      this.dayNight.fullIbl = q.ibl === 'full';
+      this.post.configure(q.post);
+      this._warmUpShaders();
     }
     if (changed('volume')) this.audio.setVolume(st.volume);
     if (changed('density')) {
@@ -473,9 +567,15 @@ export class Game {
     this.cameraRig.update(dt);
     this.dayNight.update(dt, car.position, this.camera);
     this.weather.update(dt, this.dayNight);
+    this.env.wet = this.weather.wet;
     this.env.update(this.dayNight.sunDir, night, this.weather.overcast ?? 0);
     this.city.update(night);
     this.props.update(night);
+    if (this.post.enabled) {
+      if (this.post.opts.flare) this._sunVis += (this._sunVisibility() - this._sunVis) * Math.min(1, frameDt * 8);
+      const top = Math.max(car.cfg.topSpeedKmh, 120) / 3.6;
+      this.post.update(p.speed / top, this.dayNight.exposure, this.dayNight.sunDir, night, this._sunVis);
+    }
     this.trafficRenderer.update(night, this.camera.position, dt);
     this.peds.update(dt, pl, this.camera.position, night);
     this.pedRenderer.update(dt, this.camera);

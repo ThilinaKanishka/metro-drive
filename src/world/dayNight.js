@@ -153,7 +153,8 @@ export class DayNight {
       this.sun.color.set(0xfff6ea).lerp(this._tmp.set(0xff9a50), dawn * 0.85);
       this.sun.intensity = 4.2 * smoothstep(-0.02, 0.25, elev);
     }
-    this.hemi.intensity = lerp(0.35, 0.3, day);
+    // Without full image-based lighting the hemisphere light carries the sky fill.
+    this.hemi.intensity = lerp(0.35, 0.3, day) * (this.fullIbl === false ? lerp(1.6, 5.0, day) : 1);
     this.hemi.color.copy(this._top).lerp(this._tmp.set(0xffffff), 0.4);
     this.hemi.groundColor.set(0x4a4438).lerp(this._tmp.set(0x10121a), this.night);
     this.exposure = lerp(0.95, 0.7, day);

@@ -73,19 +73,41 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
   const tailGlows = L.tail.map((p) => glowSprite(0xff2a1a, p, 0.9, -0.08));
   const headGlows = L.head.map((p) => glowSprite(0xfff1d0, p, 1.3, 0.1));
 
-  // Real headlight beams (no shadows by default: cheap enough for one car).
+  // Headlight beams. Real spot lights are lit per pixel on every material in
+  // the scene, which is expensive on integrated GPUs, so the quality preset
+  // picks a mode (see setHeadlightMode):
+  //   'decal' - no lights, an additive beam decal on the road (Low / Medium)
+  //   'one'   - one centred spot light (High)
+  //   'two'   - one per lamp, the first casting shadows (Ultra)
+  // Lights are only visible at night; the game pre-compiles both light
+  // counts so switching at dusk doesn't stall.
   const beams = [];
-  const beamPower = 120 / L.head.length;
-  for (const [x, y, z] of L.head) {
+  const headZ = L.head[0][2];
+  const headY = L.head[0][1];
+  const lampX = L.head.length > 1 ? Math.abs(L.head[0][0]) : 0;
+  for (const x of [lampX, -lampX]) {
     const spot = new THREE.SpotLight(0xfff1d8, 0, 70, 0.52, 0.55, 1.4);
-    spot.position.set(x, y, z);
-    spot.target.position.set(x * 1.5, 0, z + 18);
+    spot.position.set(x, headY, headZ);
+    spot.target.position.set(x * 1.5, 0, headZ + 18);
     spot.shadow.mapSize.set(512, 512);
     spot.shadow.camera.near = 0.5;
     spot.shadow.bias = -0.0005;
+    spot.visible = false;
     body.add(spot, spot.target);
     beams.push(spot);
   }
+  let beamMode = 'decal';
+  const beamDecal = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({
+      map: getBeamTexture(), color: 0xfff0d0, transparent: true, opacity: 0, depthWrite: false,
+      blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+    }),
+  );
+  beamDecal.scale.set(6, 1, 13);
+  beamDecal.position.set(0, 0.06, headZ + 6.5);
+  beamDecal.renderOrder = 2;
+  root.add(beamDecal);
 
   // Interior + cockpit-only parts --------------------------------------------
   const ck = shape.cockpit;
@@ -189,7 +211,13 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
       headMat.emissiveIntensity = 0.2 + headlights * 3;
       // Never toggle .visible on lights: changing the light count forces every
       // material to recompile (a visible hitch at dusk). Fade intensity instead.
-      for (const b of beams) b.intensity = headlights * beamPower;
+      const on = headlights > 0.02;
+      beamDecal.visible = beamMode === 'decal' && on;
+      beamDecal.material.opacity = headlights * 0.32;
+      beams[0].visible = on && beamMode !== 'decal';
+      beams[1].visible = on && beamMode === 'two';
+      const power = beamMode === 'one' ? 120 : 60;
+      for (const b of beams) b.intensity = headlights * power;
       tailMat.emissiveIntensity = braking ? 4 : 0.3 + headlights * 1.2;
       revMat.emissiveIntensity = reversing ? 2.5 : 0;
       for (const g of tailGlows) g.material.opacity = braking ? 0.9 : headlights * 0.35;
@@ -201,9 +229,24 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
     setHeadlightShadow(on) {
       beams[0].castShadow = on;
     },
+    /** 'decal' | 'one' | 'two' (see above). */
+    setHeadlightMode(mode) {
+      beamMode = mode;
+      // A single beam sits on the centre line and spreads wider.
+      beams[0].position.x = mode === 'one' ? 0 : lampX;
+      beams[0].target.position.x = mode === 'one' ? 0 : lampX * 1.5;
+      beams[0].angle = mode === 'one' ? 0.62 : 0.52;
+    },
+    /** Lights on for shader pre-compilation (see Game._warmUpShaders). */
+    forceBeams(on) {
+      beams[0].visible = on && beamMode !== 'decal';
+      beams[1].visible = on && beamMode === 'two';
+    },
     dispose() {
       root.removeFromParent();
       for (const g of [...tailGlows, ...headGlows]) g.material.dispose();
+      beamDecal.geometry.dispose();
+      beamDecal.material.dispose();
       paint.geometry.dispose();
       hood.geometry.dispose();
       for (const m of materials) m.dispose();
@@ -230,4 +273,24 @@ function getGlowTexture() {
   glowTexture = new THREE.CanvasTexture(c);
   glowTexture.colorSpace = THREE.SRGBColorSpace;
   return glowTexture;
+}
+
+let beamTexture = null;
+/** Soft forward-fading pool of light for the beam decal. */
+function getBeamTexture() {
+  if (beamTexture) return beamTexture;
+  // Elliptical falloff that reaches zero before every edge of the texture.
+  const s = 128;
+  const c = document.createElement('canvas');
+  c.width = c.height = s;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(s / 2, s * 0.3, 0, s / 2, s * 0.42, s * 0.48);
+  g.addColorStop(0, 'rgba(255,255,255,0.9)');
+  g.addColorStop(0.45, 'rgba(255,255,255,0.4)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, s, s);
+  beamTexture = new THREE.CanvasTexture(c);
+  beamTexture.colorSpace = THREE.SRGBColorSpace;
+  return beamTexture;
 }
