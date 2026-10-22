@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { getVehicleShape, getUnitGeometries, extrudeProfile } from './vehicleShapes.js';
 import { createWindshield } from './windshield.js';
+import { createDashboard } from './dashboard.js';
 
 /**
  * The player's car: full hierarchy built from a procedural vehicle shape,
@@ -169,7 +170,17 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
   const wheelRing = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.026, 6, 18), darkMat);
   wheelRing.position.set(ck.eye[0], ck.wheel[0], ck.wheel[1]);
   wheelRing.rotation.x = -0.5;
+  // Spokes (children of the rim, so they turn with it) and a hub.
+  for (const a of [0, Math.PI * 0.5, Math.PI]) {
+    const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.022, 0.018), darkMat);
+    spoke.position.set(Math.cos(a) * 0.075, -Math.sin(a) * 0.075 * (a === Math.PI * 0.5 ? 1 : 0), 0);
+    spoke.rotation.z = -a;
+    wheelRing.add(spoke);
+  }
+  wheelRing.add(new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.03, 12).rotateX(Math.PI / 2), darkMat));
   cockpit.add(wheelRing);
+  const dashboard = createDashboard(ck, inner);
+  cockpit.add(dashboard.group);
   const windshield = createWindshield(ck);
   cockpit.add(windshield.group);
   body.add(cockpit);
@@ -207,6 +218,10 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
     beams,
     reflective: [paintMat, glassMat, rimMat, hood.material],
     steeringWheel: wheelRing,
+    /** Cockpit instruments: speed (km/h), rpm in thousands, indicators, night 0..1. */
+    updateDashboard(kmh, rpmK, left, right, night) {
+      if (cockpit.visible) dashboard.update(kmh, rpmK, left, right, night);
+    },
     windshield,
     setColor(c) {
       paintMat.color.set(c);
