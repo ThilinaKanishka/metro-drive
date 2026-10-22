@@ -1,78 +1,18 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
+import { getVehicleShape, getUnitGeometries, extrudeProfile } from './vehicleShapes.js';
 
 /**
- * Procedural low-poly car. The silhouette is an extruded side profile, the
- * greenhouse (glass) a second narrower extrusion. Geometry is cached and
- * shared with the instanced traffic cars.
+ * The player's car: full hierarchy built from a procedural vehicle shape,
+ * with steerable wheels, real headlight beams, brake / reverse / indicator
+ * lamps and a cockpit interior for the first-person camera.
  *
  * Car local axes: +Z forward, +Y up, +X = driver's left.
  */
-let cached = null;
-
-/** Extrude a side profile (points as [forward, up]) across the car's width. */
-function extrudeProfile(points, width, bevel) {
-  const shape = new THREE.Shape(points.map(([z, y]) => new THREE.Vector2(z, y)));
-  const geo = new THREE.ExtrudeGeometry(shape, {
-    depth: width - bevel * 2,
-    bevelEnabled: bevel > 0,
-    bevelThickness: bevel,
-    bevelSize: bevel,
-    bevelSegments: 1,
-    curveSegments: 1,
-  });
-  // Shape X -> world +Z (forward), extrusion Z -> world -X; then centre on X.
-  geo.rotateY(-Math.PI / 2);
-  geo.translate((width - bevel * 2) / 2, 0, 0);
-  geo.computeVertexNormals();
-  return geo;
-}
-
-export function getCarGeometries() {
-  if (cached) return cached;
-  const r = CONFIG.car.wheelRadius;
-
-  const body = extrudeProfile(
-    [[-2.12, 0.32], [2.1, 0.32], [2.18, 0.58], [2.05, 0.8], [0.9, 0.93], [-1.75, 0.98], [-2.14, 0.9], [-2.18, 0.42]],
-    1.84, 0.06,
-  );
-  const cabin = extrudeProfile(
-    [[0.95, 0.9], [0.18, 1.34], [-1.05, 1.34], [-1.82, 0.95]],
-    1.62, 0.04,
-  );
-  // Extrusions are non-indexed, so de-index the box before merging.
-  const roof = new THREE.BoxGeometry(1.5, 0.05, 1.18).translate(0, 1.37, -0.44).toNonIndexed();
-  const paint = mergeGeometries([body, roof]);
-
-  // Dark trim: bumpers + side skirts.
-  const trim = mergeGeometries([
-    new THREE.BoxGeometry(1.7, 0.18, 0.12).translate(0, 0.4, 2.16),
-    new THREE.BoxGeometry(1.7, 0.18, 0.12).translate(0, 0.42, -2.18),
-    new THREE.BoxGeometry(1.88, 0.1, 2.4).translate(0, 0.33, 0),
-  ]);
-
-  const wheel = new THREE.CylinderGeometry(r, r, 0.26, 12).rotateZ(Math.PI / 2);
-  const rim = new THREE.CylinderGeometry(r * 0.6, r * 0.6, 0.28, 8).rotateZ(Math.PI / 2);
-  const headlight = new THREE.BoxGeometry(0.42, 0.12, 0.06);
-  const taillight = new THREE.BoxGeometry(0.4, 0.12, 0.06);
-
-  cached = { paint, cabin, trim, wheel, rim, headlight, taillight };
-  return cached;
-}
-
-/** Wheel placement in car space: [x, z, isFront]. */
-export const WHEEL_POSITIONS = [
-  [0.8, 1.32, true], [-0.8, 1.32, true],
-  [0.8, -1.3, false], [-0.8, -1.3, false],
-];
-// Lamps sit just proud of the bevelled body surface.
-export const HEADLIGHT_POSITIONS = [[0.6, 0.66, 2.2], [-0.6, 0.66, 2.2]];
-export const TAILLIGHT_POSITIONS = [[0.62, 0.74, -2.23], [-0.62, 0.74, -2.23]];
-
-/** The player's car: full hierarchy with steerable wheels and real headlights. */
-export function createPlayerCar(color = CONFIG.player.color) {
-  const g = getCarGeometries();
+export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color) {
+  const shape = getVehicleShape(shapeType);
+  const g = shape.geo;
+  const u = getUnitGeometries();
   const root = new THREE.Group();
   root.name = 'playerCar';
 
@@ -80,105 +20,139 @@ export function createPlayerCar(color = CONFIG.player.color) {
   const body = new THREE.Group();
   root.add(body);
 
-  const paintMat = new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.3 });
+  const paintMat = new THREE.MeshStandardMaterial({ color, roughness: 0.3, metalness: 0.35 });
   const glassMat = new THREE.MeshStandardMaterial({
-    color: 0x1a2430, roughness: 0.1, metalness: 0.6, transparent: true, opacity: 0.72,
+    color: 0x1a2430, roughness: 0.08, metalness: 0.7, transparent: true, opacity: 0.72,
   });
   const trimMat = new THREE.MeshStandardMaterial({ color: 0x1c1d20, roughness: 0.8 });
+  const secondaryMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e4, roughness: 0.5 });
 
-  const paint = new THREE.Mesh(g.paint, paintMat);
-  const cabin = new THREE.Mesh(g.cabin, glassMat);
+  // Paint geometry is cloned so crash damage can dent this car only.
+  const paint = new THREE.Mesh(g.paint.clone(), paintMat);
+  const cabin = new THREE.Mesh(g.glass, glassMat);
   const trim = new THREE.Mesh(g.trim, trimMat);
-  paint.castShadow = trim.castShadow = true;
-  cabin.castShadow = true;
+  paint.castShadow = trim.castShadow = cabin.castShadow = true;
   body.add(paint, cabin, trim);
+  if (g.secondary) body.add(new THREE.Mesh(g.secondary, secondaryMat));
 
   // Lamps -------------------------------------------------------------------
-  const headMat = new THREE.MeshStandardMaterial({ color: 0xf4f4f0, emissive: 0xfff3d6, emissiveIntensity: 0.2 });
-  const tailMat = new THREE.MeshStandardMaterial({ color: 0x6a0b0b, emissive: 0xff1a1a, emissiveIntensity: 0.3 });
-  for (const [x, y, z] of HEADLIGHT_POSITIONS) {
-    const m = new THREE.Mesh(g.headlight, headMat);
-    m.position.set(x, y, z);
-    body.add(m);
-  }
-  for (const [x, y, z] of TAILLIGHT_POSITIONS) {
-    const m = new THREE.Mesh(g.taillight, tailMat);
-    m.position.set(x, y, z);
-    body.add(m);
+  const lampMat = (color, emissive, intensity) =>
+    new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: intensity });
+  const headMat = lampMat(0xf4f4f0, 0xfff3d6, 0.2);
+  const tailMat = lampMat(0x6a0b0b, 0xff1a1a, 0.3);
+  const revMat = lampMat(0xd8d8d8, 0xffffff, 0);
+  const indMats = [lampMat(0x8a5a10, 0xffa21a, 0), lampMat(0x8a5a10, 0xffa21a, 0)];
+  const addLamps = (list, mat) => {
+    for (const [x, y, z, w, h] of list) {
+      const m = new THREE.Mesh(u.lamp, mat);
+      m.position.set(x, y, z);
+      m.scale.set(w, h, 1);
+      body.add(m);
+    }
+  };
+  const L = shape.lamps;
+  addLamps(L.head, headMat);
+  addLamps(L.tail, tailMat);
+  addLamps(L.reverse, revMat);
+  for (const side of [0, 1]) {
+    addLamps([L.indFront[side], L.indRear[side]], indMats[side]);
   }
 
-  // Real headlight beams (no shadows: cheap enough for one car).
+  // Real headlight beams (no shadows by default: cheap enough for one car).
   const beams = [];
-  for (const [x, y, z] of HEADLIGHT_POSITIONS) {
+  const beamPower = 120 / L.head.length;
+  for (const [x, y, z] of L.head) {
     const spot = new THREE.SpotLight(0xfff1d8, 0, 70, 0.52, 0.55, 1.4);
     spot.position.set(x, y, z);
     spot.target.position.set(x * 1.5, 0, z + 18);
+    spot.shadow.mapSize.set(512, 512);
+    spot.shadow.camera.near = 0.5;
+    spot.shadow.bias = -0.0005;
     body.add(spot, spot.target);
     beams.push(spot);
   }
 
-  // Interior visible through the glass from outside.
+  // Interior + cockpit-only parts --------------------------------------------
+  const ck = shape.cockpit;
+  const inner = shape.width - 0.18;
   const interiorMat = new THREE.MeshStandardMaterial({ color: 0x24262b, roughness: 0.9 });
   const interior = new THREE.Group();
-  const dash = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.3, 0.6), interiorMat);
-  dash.position.set(0, 0.88, 0.7);
-  const seats = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.5, 0.5), interiorMat);
-  seats.position.set(0, 0.9, -0.55);
+  const dash = new THREE.Mesh(new THREE.BoxGeometry(inner, 0.3, 0.6), interiorMat);
+  dash.position.set(0, ck.dash[0], ck.dash[1]);
+  const seats = new THREE.Mesh(new THREE.BoxGeometry(Math.max(inner - 0.3, 0.5), 0.5, 0.5), interiorMat);
+  seats.position.set(0, ck.dash[0] + 0.02, ck.eye[2] - 0.35);
   interior.add(dash, seats);
   body.add(interior);
 
-  // Cockpit-only parts (shown while the exterior shell is hidden): a hood
-  // slice, A-pillars, door cards, floor, headliner and the steering wheel.
+  // Shown while the exterior shell is hidden: a hood slice, A-pillars, door
+  // cards, floor, headliner and the steering wheel.
   const cockpit = new THREE.Group();
   cockpit.visible = false;
-  const hood = new THREE.Mesh(
-    extrudeProfile([[0.92, 0.6], [2.1, 0.6], [2.18, 0.62], [2.05, 0.8], [0.92, 0.93]], 1.84, 0.06),
-    paintMat.clone(),
-  );
+  const hood = new THREE.Mesh(extrudeProfile(ck.hood, ck.hoodWidth, 0.06), paintMat.clone());
   const darkMat = new THREE.MeshStandardMaterial({ color: 0x1b1c20, roughness: 0.9 });
   const headlinerMat = new THREE.MeshStandardMaterial({ color: 0x6a6d73, roughness: 1 });
-  const floor = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 0.9), darkMat);
-  floor.position.set(0, 0.55, 0.0);
-  const headliner = new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.03, 1.28), headlinerMat);
-  headliner.position.set(0, 1.335, -0.42);
+  const floorY = ck.door ? ck.door[1] - 0.2 : 0.6;
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(inner, 0.5, 0.9), darkMat);
+  floor.position.set(0, floorY, 0.0);
+  const [roofY, roofZ, roofLen, roofW] = ck.roof;
+  const headliner = new THREE.Mesh(new THREE.BoxGeometry(roofW, 0.03, roofLen), headlinerMat);
+  headliner.position.set(0, roofY, roofZ);
   cockpit.add(hood, floor, headliner);
   for (const side of [1, -1]) {
-    const door = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.5, 2.0), interiorMat);
-    door.position.set(side * 0.88, 0.75, -0.15);
-    const a = new THREE.Vector3(side * 0.8, 0.95, 0.92);
-    const b = new THREE.Vector3(side * 0.72, 1.35, 0.16);
+    if (ck.door) {
+      const door = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.5, 2.0), interiorMat);
+      door.position.set(side * ck.door[0], ck.door[1], -0.15);
+      cockpit.add(door);
+    }
+    const a = new THREE.Vector3(side * ck.pillarBase[0], ck.pillarBase[1], ck.pillarBase[2]);
+    const b = new THREE.Vector3(side * ck.pillarTop[0], ck.pillarTop[1], ck.pillarTop[2]);
     const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.06, a.distanceTo(b)), darkMat);
     pillar.position.copy(a).add(b).multiplyScalar(0.5);
     pillar.lookAt(b);
-    cockpit.add(door, pillar);
+    cockpit.add(pillar);
   }
   const wheelRing = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.026, 6, 18), darkMat);
-  wheelRing.position.set(CONFIG.camera.cockpitOffset[0], 1.0, 0.36);
+  wheelRing.position.set(ck.eye[0], ck.wheel[0], ck.wheel[1]);
   wheelRing.rotation.x = -0.5;
   cockpit.add(wheelRing);
   body.add(cockpit);
 
   // Wheels: pivot (steering, yaw) -> spinner (rolling, pitch).
   const tyreMat = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 });
-  const rimMat = new THREE.MeshStandardMaterial({ color: 0xb8bcc4, roughness: 0.3, metalness: 0.7 });
-  const wheels = WHEEL_POSITIONS.map(([x, z, front]) => {
+  const rimMat = new THREE.MeshStandardMaterial({ color: 0xb8bcc4, roughness: 0.25, metalness: 0.8 });
+  const r = shape.wheelRadius;
+  const wheels = shape.wheels.map(([x, z, front]) => {
     const pivot = new THREE.Group();
-    pivot.position.set(x, CONFIG.car.wheelRadius, z);
+    pivot.position.set(x, r, z);
     const spinner = new THREE.Group();
-    const tyre = new THREE.Mesh(g.wheel, tyreMat);
+    const tyre = new THREE.Mesh(u.wheel, tyreMat);
     tyre.castShadow = true;
-    spinner.add(tyre, new THREE.Mesh(g.rim, rimMat));
+    const rim = new THREE.Mesh(u.rim, rimMat);
+    spinner.scale.set(shape.wheelWidth, r, r);
+    spinner.add(tyre, rim);
     pivot.add(spinner);
     root.add(pivot);
     return { pivot, spinner, front };
   });
+
+  const materials = [paintMat, glassMat, trimMat, secondaryMat, headMat, tailMat, revMat, ...indMats,
+    interiorMat, darkMat, headlinerMat, tyreMat, rimMat, hood.material];
 
   return {
     root,
     body,
     wheels,
     interior,
+    shape,
+    paint,
+    paintMat,
+    beams,
+    reflective: [paintMat, glassMat, rimMat, hood.material],
     steeringWheel: wheelRing,
+    setColor(c) {
+      paintMat.color.set(c);
+      hood.material.color.set(c);
+    },
     /**
      * Swap between exterior shell and cockpit interior. The shell stops
      * writing colour/depth but still renders into the shadow map, so the car
@@ -186,18 +160,33 @@ export function createPlayerCar(color = CONFIG.player.color) {
      */
     setCockpit(on) {
       cockpit.visible = on;
-      for (const m of [paintMat, glassMat]) {
+      for (const m of [paintMat, glassMat, secondaryMat]) {
         m.colorWrite = !on;
         m.depthWrite = !on && m !== glassMat;
       }
     },
-    /** headlights: 0..1 (fades in at dusk), braking: bool. */
-    setLights(headlights, braking) {
+    /**
+     * headlights: 0..1 (fades in at dusk), braking / reversing: bool,
+     * indL / indR: current blink state of each indicator.
+     */
+    setLights(headlights, braking, reversing = false, indL = false, indR = false) {
       headMat.emissiveIntensity = 0.2 + headlights * 3;
       // Never toggle .visible on lights: changing the light count forces every
       // material to recompile (a visible hitch at dusk). Fade intensity instead.
-      for (const b of beams) b.intensity = headlights * 60;
+      for (const b of beams) b.intensity = headlights * beamPower;
       tailMat.emissiveIntensity = braking ? 4 : 0.3 + headlights * 1.2;
+      revMat.emissiveIntensity = reversing ? 2.5 : 0;
+      indMats[0].emissiveIntensity = indL ? 3 : 0;
+      indMats[1].emissiveIntensity = indR ? 3 : 0;
+    },
+    dispose() {
+      root.removeFromParent();
+      paint.geometry.dispose();
+      hood.geometry.dispose();
+      for (const m of materials) m.dispose();
+      root.traverse((o) => {
+        if (o.isMesh && o.geometry.type === 'BoxGeometry') o.geometry.dispose();
+      });
     },
   };
 }

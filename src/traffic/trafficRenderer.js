@@ -1,8 +1,5 @@
 import * as THREE from 'three';
-import {
-  getCarGeometries, WHEEL_POSITIONS, HEADLIGHT_POSITIONS, TAILLIGHT_POSITIONS,
-} from '../vehicle/carModel.js';
-import { CONFIG } from '../config.js';
+import { getVehicleShape, getUnitGeometries } from '../vehicle/vehicleShapes.js';
 
 /**
  * Draws every AI car with a handful of InstancedMeshes (paint, glass, trim,
@@ -12,7 +9,14 @@ export class TrafficRenderer {
   constructor(scene, traffic) {
     this.traffic = traffic;
     const n = traffic.cars.length;
-    const g = getCarGeometries();
+    const shape = getVehicleShape('sedan');
+    const u = getUnitGeometries();
+    const g = {
+      paint: shape.geo.paint, cabin: shape.geo.glass, trim: shape.geo.trim,
+      wheel: u.wheel.clone().scale(shape.wheelWidth, shape.wheelRadius, shape.wheelRadius),
+      headlight: u.lamp.clone().scale(0.42, 0.12, 1), taillight: u.lamp.clone().scale(0.4, 0.12, 1),
+    };
+    this.shape = shape;
 
     this.paint = new THREE.InstancedMesh(g.paint, new THREE.MeshStandardMaterial({ roughness: 0.4, metalness: 0.25 }), n);
     this.glass = new THREE.InstancedMesh(g.cabin, new THREE.MeshStandardMaterial({ color: 0x1a2430, roughness: 0.15, metalness: 0.6 }), n);
@@ -63,7 +67,10 @@ export class TrafficRenderer {
     const headR = headColor.r;
     const headG = headColor.g;
     const headB = headColor.b;
-    const r = CONFIG.car.wheelRadius;
+    const r = this.shape.wheelRadius;
+    const WHEEL_POSITIONS = this.shape.wheels;
+    const HEADLIGHT_POSITIONS = this.shape.lamps.head;
+    const TAILLIGHT_POSITIONS = this.shape.lamps.tail;
 
     for (let i = 0; i < cars.length; i++) {
       const c = cars[i];

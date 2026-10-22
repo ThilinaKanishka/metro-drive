@@ -35,6 +35,10 @@ export class Hud {
     this.root.classList.remove('hidden');
   }
 
+  hide() {
+    this.root.classList.add('hidden');
+  }
+
   toggleFps() {
     this.fpsEl.classList.toggle('hidden');
   }
@@ -73,7 +77,7 @@ export class Hud {
         `Traffic: ${state.trafficCount}   Sound: ${state.muted ? 'off' : 'on'}`;
     }
 
-    this._drawSpeedo(state.speedKmh, state.rpm, state.gear);
+    this._drawSpeedo(state.speedKmh, state.rpm, state.gear, state.redline);
   }
 
   _drawDial(dpr) {
@@ -120,7 +124,7 @@ export class Hud {
     return c;
   }
 
-  _drawSpeedo(kmh, rpm, gear) {
+  _drawSpeedo(kmh, rpm, gear, redline = CONFIG.car.redlineRpm) {
     const ctx = this.ctx;
     const s = this.size;
     const cx = s / 2;
@@ -130,7 +134,7 @@ export class Hud {
     ctx.drawImage(this.dial, 0, 0, s, s);
 
     // RPM ring (inner arc) turns red near the redline.
-    const rpmRatio = Math.min(rpm / CONFIG.car.redlineRpm, 1);
+    const rpmRatio = Math.min(rpm / redline, 1);
     ctx.lineWidth = 5;
     ctx.lineCap = 'round';
     ctx.strokeStyle = 'rgba(255,255,255,0.08)';

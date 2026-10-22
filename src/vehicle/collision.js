@@ -11,18 +11,18 @@ export const CAR_CIRCLES = [
 ];
 
 /** World-space centres of a car's collision circles. */
-export function carCircles(x, z, heading, out = []) {
+export function carCircles(x, z, heading, out = [], spec = CAR_CIRCLES) {
   const s = Math.sin(heading);
   const c = Math.cos(heading);
-  for (let i = 0; i < CAR_CIRCLES.length; i++) {
-    const cc = CAR_CIRCLES[i];
+  for (let i = 0; i < spec.length; i++) {
+    const cc = spec[i];
     const o = (out[i] ||= { x: 0, z: 0, r: 0, forward: 0 });
     o.x = x + s * cc.forward;
     o.z = z + c * cc.forward;
     o.r = cc.radius;
     o.forward = cc.forward;
   }
-  out.length = CAR_CIRCLES.length;
+  out.length = spec.length;
   return out;
 }
 
@@ -36,15 +36,22 @@ const tmpCircles = [];
 export function resolveCar(phys, staticColliders, dynamicCircles) {
   let impact = 0;
   let hitOwner = null;
+  let hitX = 0;
+  let hitZ = 0;
 
   // Two passes handle corners where two boxes meet.
   for (let pass = 0; pass < 2; pass++) {
-    const circles = carCircles(phys.x, phys.z, phys.heading, tmpCircles);
+    const circles = carCircles(phys.x, phys.z, phys.heading, tmpCircles, phys.cfg.circles);
     for (const cc of circles) {
       for (const col of staticColliders) {
         const hit = col.type === 'box' ? circleBox(cc, col) : circleCircle(cc, col.x, col.z, col.r);
         if (hit) {
-          impact = Math.max(impact, phys.applyImpact(hit.nx, hit.nz, hit.depth, cc.forward, 0));
+          const v = phys.applyImpact(hit.nx, hit.nz, hit.depth, cc.forward, 0);
+          if (v > impact) {
+            impact = v;
+            hitX = cc.x - hit.nx * cc.r;
+            hitZ = cc.z - hit.nz * cc.r;
+          }
           // Keep circle centres in sync after the push-out.
           cc.x += hit.nx * hit.depth;
           cc.z += hit.nz * hit.depth;
@@ -54,7 +61,11 @@ export function resolveCar(phys, staticColliders, dynamicCircles) {
         const hit = circleCircle(cc, d.x, d.z, d.r);
         if (hit) {
           const v = phys.applyImpact(hit.nx, hit.nz, hit.depth, cc.forward, 0);
-          if (v > impact) impact = v;
+          if (v > impact) {
+            impact = v;
+            hitX = cc.x - hit.nx * cc.r;
+            hitZ = cc.z - hit.nz * cc.r;
+          }
           hitOwner = d.owner;
           cc.x += hit.nx * hit.depth;
           cc.z += hit.nz * hit.depth;
@@ -62,7 +73,7 @@ export function resolveCar(phys, staticColliders, dynamicCircles) {
       }
     }
   }
-  return { impact, hitOwner };
+  return { impact, hitOwner, hitX, hitZ };
 }
 
 const hitResult = { nx: 0, nz: 0, depth: 0 };

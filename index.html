@@ -43,11 +43,15 @@
 
     <div id="rotate-hint">Rotate your phone to landscape ↻</div>
 
-    <!-- Start screen -->
-    <div id="start" class="overlay">
+    <!-- Main menu -->
+    <div id="start" class="overlay menu-screen">
       <div class="panel">
         <h1>METRO<span>DRIVE</span></h1>
         <p class="tagline">A procedural low-poly city. Drive it.</p>
+        <div class="menu-buttons">
+          <button id="start-btn" class="btn primary" disabled>Loading…</button>
+          <button id="menu-garage" class="btn">Garage</button>
+        </div>
         <div class="controls">
           <div><kbd>W</kbd><kbd>↑</kbd> Accelerate</div>
           <div><kbd>S</kbd><kbd>↓</kbd> Brake / Reverse</div>
@@ -62,15 +66,41 @@
           <div><kbd>F</kbd> FPS counter</div>
         </div>
         <p class="touch-hint">Hold ◀ ▶ to steer, ▲ to accelerate, ▼ to brake / reverse,<br />HB for the handbrake. Landscape works best.</p>
-        <button id="start-btn" disabled>Loading…</button>
       </div>
     </div>
 
-    <!-- Pause screen -->
-    <div id="pause" class="overlay hidden">
+    <!-- Garage / car select -->
+    <div id="garage" class="hidden">
+      <div class="garage-top">
+        <button id="garage-back" class="btn ghost">‹ Back</button>
+        <h2>GARAGE</h2>
+        <span class="garage-keys"><kbd>↑</kbd><kbd>↓</kbd> car &nbsp; <kbd>←</kbd><kbd>→</kbd> paint &nbsp; drag to spin</span>
+      </div>
+      <div id="garage-list" class="garage-list"></div>
+      <div class="garage-info">
+        <h3 id="garage-name"></h3>
+        <div class="stat" data-stat="speed"><span>Speed</span><div class="bar"><i></i></div></div>
+        <div class="stat" data-stat="accel"><span>Acceleration</span><div class="bar"><i></i></div></div>
+        <div class="stat" data-stat="handling"><span>Handling</span><div class="bar"><i></i></div></div>
+        <div class="stat" data-stat="braking"><span>Braking</span><div class="bar"><i></i></div></div>
+        <div id="garage-specs" class="specs"></div>
+      </div>
+      <div class="garage-bottom">
+        <div id="garage-colors" class="swatches"></div>
+        <button id="garage-drive" class="btn primary">Drive ›</button>
+      </div>
+    </div>
+
+    <!-- Pause menu -->
+    <div id="pause" class="overlay hidden menu-screen">
       <div class="panel small">
         <h2>Paused</h2>
-        <p>Press <kbd>P</kbd> or tap to resume</p>
+        <div class="menu-buttons vertical">
+          <button id="pause-resume" class="btn primary">Resume</button>
+          <button id="pause-garage" class="btn">Garage</button>
+          <button id="pause-restart" class="btn">Restart</button>
+          <button id="pause-quit" class="btn ghost">Main menu</button>
+        </div>
       </div>
     </div>
 

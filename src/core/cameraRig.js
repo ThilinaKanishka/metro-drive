@@ -40,7 +40,7 @@ export class CameraRig {
 
   next() {
     this.modeIndex = (this.modeIndex + 1) % CAMERA_MODES.length;
-    this.car.model.setCockpit(this.mode === 'cockpit');
+    this.car.setCockpit(this.mode === 'cockpit');
     this.camera.up.set(0, 1, 0);
     this.snap();
     return this.label;
@@ -61,7 +61,11 @@ export class CameraRig {
     const p = this.car.physics;
     const cam = this.camera;
     const carPos = this.car.position;
-    const speedRatio = clamp(p.speed / (CONFIG.car.topSpeedKmh / 3.6), 0, 1);
+    const speedRatio = clamp(p.speed / (Math.max(this.car.cfg.topSpeedKmh, 120) / 3.6), 0, 1);
+    // Bigger cars get a farther, higher chase camera.
+    const shape = this.car.shape;
+    const sizeK = Math.max(shape.length - 4.4, 0);
+    const heightK = Math.max(shape.height - 1.4, 0);
     let fov = cfg.fov;
 
     switch (this.mode) {
@@ -70,10 +74,10 @@ export class CameraRig {
         this.yaw += angleDiff(this.yaw, p.heading) * (instant ? 1 : damp(3.2 + speedRatio * 3, dt));
         const fx = Math.sin(this.yaw);
         const fz = Math.cos(this.yaw);
-        const dist = cfg.chaseDistance + speedRatio * 1.8;
+        const dist = cfg.chaseDistance + sizeK * 0.9 + speedRatio * 1.8;
         const desired = this._v.set(
           carPos.x - fx * dist,
-          cfg.chaseHeight + speedRatio * 0.4,
+          cfg.chaseHeight + heightK * 0.7 + speedRatio * 0.4,
           carPos.z - fz * dist,
         );
         this._avoidWalls(carPos, desired);
@@ -88,7 +92,7 @@ export class CameraRig {
       case 'cockpit': {
         const body = this.car.model.body;
         body.updateWorldMatrix(true, false);
-        const [ox, oy, oz] = cfg.cockpitOffset;
+        const [ox, oy, oz] = shape.cockpit.eye;
         cam.position.set(ox, oy, oz).applyMatrix4(body.matrixWorld);
         body.getWorldQuaternion(this._q);
         cam.quaternion.copy(this._q).multiply(this._flip);
