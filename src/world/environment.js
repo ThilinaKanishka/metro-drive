@@ -65,6 +65,8 @@ export class ReflectionEnvironment {
 
   /** Register a material whose envMap / intensity are managed explicitly. */
   add(material) {
+    // Remember any per-material boost (e.g. glass) relative to the global level.
+    material.userData.envBoost ??= material.envMapIntensity;
     this.materials.add(material);
     if (this.texture) this._apply(material);
   }
@@ -80,6 +82,7 @@ export class ReflectionEnvironment {
       m.envMap = tex;
       m.needsUpdate = true;
     }
+    if (!m.userData.envManual) m.envMapIntensity = this.intensity * m.userData.envBoost;
   }
 
   /** sunDir: normalised; night 0..1; overcast 0..1. */

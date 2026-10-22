@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { lerp, approach } from '../core/utils.js';
+import { roadUniforms } from './roads.js';
 
 export const WEATHER_TYPES = ['clear', 'rain', 'fog'];
 
@@ -167,11 +168,14 @@ export class Weather {
     dayNight.hemi.intensity *= 1 - overcast * 0.15;
 
     // Wet road: darker and glossier, so it reflects the sky env map.
+    // (The asphalt shader handles its own wet sheen and puddles via uWet.)
+    roadUniforms.uWet.value = this.wet;
     for (const m of Object.values(this.roadMats)) {
+      m.envMapIntensity = 0.42 + this.wet * 0.6;
+      if (m === this.roadMats.asphalt) continue;
       const dry = m.userData.dry;
       m.color.copy(dry.color).multiplyScalar(1 - this.wet * 0.35);
       m.roughness = lerp(dry.roughness, 0.4, this.wet);
-      m.envMapIntensity = 0.42 + this.wet * 0.25;
     }
 
     // Rain streaks.

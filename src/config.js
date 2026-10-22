@@ -197,7 +197,7 @@ export const CONFIG = {
       post: { enabled: false },
     },
     medium: {
-      shadows: true, shadowMapSize: 2048, shadowArea: 60, pixelRatio: 1, renderScale: 0.85, headlightShadow: false,
+      shadows: true, shadowMapSize: 2048, shadowArea: 60, shadowRate: 2, pixelRatio: 1, renderScale: 0.85, headlightShadow: false,
       headlights: 'decal', ibl: 'cars',
       pedestrians: 110, trafficScale: 1, drawDistance: 420, pedDrawDistance: 120,
       post: { enabled: true, aa: 'fxaa', ao: 'off', bloom: true, speedBlur: false, flare: false, grain: true },

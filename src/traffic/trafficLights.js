@@ -192,7 +192,7 @@ export class TrafficLights {
     for (let k = 0; k < nP; k++) this.pedLampMesh.setColorAt(k, PED_OFF);
     this.pedLampMesh.count = nP;
 
-    this.poleMesh.castShadow = this.armMesh.castShadow = this.headMesh.castShadow = true;
+    this.poleMesh.castShadow = true;
     for (const mesh of [this.poleMesh, this.armMesh, this.headMesh, this.lampMesh, this.pedLampMesh]) {
       mesh.instanceMatrix.needsUpdate = true;
       group.add(mesh);

@@ -1,12 +1,14 @@
 import './style.css';
 import { Game } from './game.js';
+import { loadTextures } from './core/assets.js';
 
 // Entry point: build the game (world, car, traffic...) behind the main menu.
 // Play / Garage both lead through the garage; "Drive" there starts the game
 // (a user gesture, so audio can begin).
-const game = new Game(document.getElementById('app'));
 const startBtn = document.getElementById('start-btn');
 const startScreen = document.getElementById('start');
+await loadTextures();
+const game = new Game(document.getElementById('app'));
 
 startBtn.disabled = false;
 startBtn.textContent = 'Play';

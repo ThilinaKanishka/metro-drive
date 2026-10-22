@@ -6,6 +6,8 @@ import { Loop } from './core/loop.js';
 import { Input } from './core/input.js';
 import { CameraRig } from './core/cameraRig.js';
 import { City } from './world/city.js';
+import { facadeUniforms } from './world/buildings.js';
+import { windUniforms } from './world/trees.js';
 import { DayNight } from './world/dayNight.js';
 import { Car } from './vehicle/car.js';
 import { SkidMarks } from './vehicle/skidMarks.js';
@@ -418,6 +420,10 @@ export class Game {
         });
       }
       this.dayNight.setShadowMapSize(q.shadowMapSize, q.shadowArea);
+      // Medium re-renders the sun's shadow map every other frame.
+      this.shadowRate = q.shadowRate ?? 1;
+      this.renderer.shadowMap.autoUpdate = this.shadowRate === 1;
+      this.renderer.shadowMap.needsUpdate = true;
       this.trafficRenderer.drawDistance = q.drawDistance * 0.8;
       this.trafficRenderer.detailDistance = q.drawDistance * 0.35;
       this.traffic.countScale = q.trafficScale;
@@ -569,7 +575,12 @@ export class Game {
     this.weather.update(dt, this.dayNight);
     this.env.wet = this.weather.wet;
     this.env.update(this.dayNight.sunDir, night, this.weather.overcast ?? 0);
-    this.city.update(night);
+    this.city.update(night, this.camera.position);
+    windUniforms.uTime.value += dt;
+    windUniforms.uWind.value = 0.3 + this.weather.rain * 0.5;
+    this._frame = (this._frame ?? 0) + 1;
+    if (this.shadowRate > 1 && this._frame % this.shadowRate === 0) this.renderer.shadowMap.needsUpdate = true;
+    facadeUniforms.uSkyColor.value.copy(this.dayNight.skyUniforms.horizonColor.value);
     this.props.update(night);
     if (this.post.enabled) {
       if (this.post.opts.flare) this._sunVis += (this._sunVisibility() - this._sunVis) * Math.min(1, frameDt * 8);

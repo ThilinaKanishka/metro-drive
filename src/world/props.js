@@ -263,8 +263,10 @@ export class StreetProps {
     this.adMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: makeAdTexture(), emissive: 0xffffff, emissiveIntensity: 0.15 });
     this.adMat.emissiveMap = this.adMat.map;
     this._instanced(adGeometry(), this.adMat, this.busStops, false);
-    this._instanced(benchGeometry(), vc, this.benches);
-    this._instanced(binGeometry(), vc, this.bins);
+    // Small props don't cast shadows (city-wide instanced meshes would put
+    // every bench in the city into the shadow map each frame).
+    this._instanced(benchGeometry(), vc, this.benches, false);
+    this._instanced(binGeometry(), vc, this.bins, false);
     this._instanced(fountainGeometry(), vc, this.fountains);
 
     // Park paths: one merged mesh just above the lawn.
@@ -305,7 +307,6 @@ export class StreetProps {
       this.signMat = new THREE.MeshStandardMaterial({ map: atlas, emissiveMap: atlas, emissive: 0xffffff, emissiveIntensity: 0.05, roughness: 0.6 });
       const signMesh = new THREE.Mesh(mergeGeometries(faces), this.signMat);
       const boardMesh = new THREE.Mesh(mergeGeometries(boards), vc);
-      boardMesh.castShadow = true;
       boardMesh.receiveShadow = true;
       this.group.add(signMesh, boardMesh);
     }

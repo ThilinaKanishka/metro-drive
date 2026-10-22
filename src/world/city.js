@@ -12,10 +12,12 @@ export class City {
     this.buildings = buildBuildings(this.layout);
     this.trees = buildTrees(this.layout);
     this.streetLights = buildStreetLights(this.layout);
-    scene.add(this.roads, this.buildings, this.trees, this.streetLights.group);
+    scene.add(this.roads, this.buildings.group, this.trees, this.streetLights.group);
   }
 
-  update(night) {
+  /** night 0..1; eye: camera position (building LOD). */
+  update(night, eye) {
     this.streetLights.update(night);
+    if (eye) this.buildings.update(eye);
   }
 }

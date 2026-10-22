@@ -20,11 +20,17 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
   const body = new THREE.Group();
   root.add(body);
 
-  const paintMat = new THREE.MeshStandardMaterial({ color, roughness: 0.3, metalness: 0.35 });
-  const glassMat = new THREE.MeshStandardMaterial({
-    color: 0x1a2430, roughness: 0.08, metalness: 0.7, transparent: true, opacity: 0.72,
+  // Car paint: metallic base under a glossy clear coat.
+  const paintMat = new THREE.MeshPhysicalMaterial({
+    color, roughness: 0.42, metalness: 0.55, clearcoat: 1, clearcoatRoughness: 0.06,
   });
-  const trimMat = new THREE.MeshStandardMaterial({ color: 0x1c1d20, roughness: 0.8 });
+  // Tinted glass: mostly reflection, a little see-through.
+  const glassMat = new THREE.MeshPhysicalMaterial({
+    color: 0x0c1218, roughness: 0.03, metalness: 0.1, transparent: true, opacity: 0.68,
+    specularIntensity: 1, envMapIntensity: 1.4,
+  });
+  // Satin black plastic for bumpers / skirts.
+  const trimMat = new THREE.MeshStandardMaterial({ color: 0x18191c, roughness: 0.6 });
   const secondaryMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e4, roughness: 0.5 });
 
   // Paint geometry is cloned so crash damage can dent this car only.
@@ -155,8 +161,9 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
   body.add(cockpit);
 
   // Wheels: pivot (steering, yaw) -> spinner (rolling, pitch).
-  const tyreMat = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 });
-  const rimMat = new THREE.MeshStandardMaterial({ color: 0xb8bcc4, roughness: 0.25, metalness: 0.8 });
+  const tyreMat = new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 0.92 });
+  // Chrome / polished alloy.
+  const rimMat = new THREE.MeshStandardMaterial({ color: 0xd8dce2, roughness: 0.14, metalness: 1 });
   const r = shape.wheelRadius;
   const wheels = shape.wheels.map(([x, z, front]) => {
     const pivot = new THREE.Group();

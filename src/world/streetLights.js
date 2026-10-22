@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { chunkedInstances } from './chunks.js';
 
 /**
  * Street lights. Real light sources are far too expensive at this count, so
@@ -9,7 +10,6 @@ export function buildStreetLights(layout) {
   const group = new THREE.Group();
   group.name = 'streetLights';
   const lights = layout.streetLights;
-  const n = lights.length;
 
   const poleH = 6.5;
   const armLen = 2.2;
@@ -22,9 +22,6 @@ export function buildStreetLights(layout) {
     color: 0xdddddd, emissive: 0xffd9a0, emissiveIntensity: 0, roughness: 0.4,
   });
 
-  const poles = new THREE.InstancedMesh(poleGeo, metal, n);
-  const arms = new THREE.InstancedMesh(armGeo, metal, n);
-  const heads = new THREE.InstancedMesh(headGeo, headMat, n);
 
   // Light pool decal (radial gradient generated on a canvas).
   const poolTex = makeRadialTexture();
@@ -34,8 +31,6 @@ export function buildStreetLights(layout) {
     polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
   });
   const poolGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
-  const pools = new THREE.InstancedMesh(poolGeo, poolMat, n);
-  pools.renderOrder = 2;
 
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
@@ -43,24 +38,30 @@ export function buildStreetLights(layout) {
   const s = new THREE.Vector3(1, 1, 1);
   const up = new THREE.Vector3(0, 1, 0);
 
-  lights.forEach((l, i) => {
+  // Instanced in spatial chunks so only nearby lamps reach the shadow map.
+  const poleItems = [];
+  const armItems = [];
+  const headItems = [];
+  const poolItems = [];
+  lights.forEach((l) => {
     // Arm geometry points along +Z; rotate so it points along the outward normal.
     const yaw = Math.atan2(l.nx, l.nz);
     q.setFromAxisAngle(up, yaw);
-    poles.setMatrixAt(i, m.compose(p.set(l.x, 0, l.z), q, s.set(1, 1, 1)));
-    arms.setMatrixAt(i, m.compose(p.set(l.x, poleH - 0.1, l.z), q, s));
     const hx = l.x + l.nx * armLen;
     const hz = l.z + l.nz * armLen;
-    heads.setMatrixAt(i, m.compose(p.set(hx, poleH - 0.18, hz), q, s));
-    pools.setMatrixAt(i, m.compose(p.set(hx, 0.04, hz), q, s.set(13, 1, 13)));
+    poleItems.push({ x: l.x, z: l.z, matrix: m.compose(p.set(l.x, 0, l.z), q, s.set(1, 1, 1)).clone() });
+    armItems.push({ x: l.x, z: l.z, matrix: m.compose(p.set(l.x, poleH - 0.1, l.z), q, s).clone() });
+    headItems.push({ x: l.x, z: l.z, matrix: m.compose(p.set(hx, poleH - 0.18, hz), q, s).clone() });
+    poolItems.push({ x: l.x, z: l.z, matrix: m.compose(p.set(hx, 0.04, hz), q, s.set(13, 1, 13)).clone() });
   });
-
-  poles.castShadow = true;
-  arms.castShadow = true;
-  for (const mesh of [poles, arms, heads, pools]) {
-    mesh.instanceMatrix.needsUpdate = true;
-    group.add(mesh);
-  }
+  const cast = (mesh) => { mesh.castShadow = true; };
+  group.add(
+    chunkedInstances(poleGeo, metal, poleItems, { onMesh: cast }),
+    chunkedInstances(armGeo, metal, armItems, { onMesh: cast }),
+    chunkedInstances(headGeo, headMat, headItems),
+  );
+  const pools = chunkedInstances(poolGeo, poolMat, poolItems, { onMesh: (mesh) => { mesh.renderOrder = 2; } });
+  group.add(pools);
 
   return {
     group,

@@ -33,9 +33,9 @@ export class TrafficRenderer {
       vTrim += verts(s.geo.trim);
     }
 
-    const paintMat = new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.3 });
-    const glassMat = new THREE.MeshStandardMaterial({ color: 0x1a2430, roughness: 0.12, metalness: 0.65 });
-    const trimMat = new THREE.MeshStandardMaterial({ color: 0x1c1d20, roughness: 0.8 });
+    const paintMat = new THREE.MeshPhysicalMaterial({ roughness: 0.42, metalness: 0.5, clearcoat: 1, clearcoatRoughness: 0.08 });
+    const glassMat = new THREE.MeshPhysicalMaterial({ color: 0x0c1218, roughness: 0.04, metalness: 0.2, envMapIntensity: 1.4 });
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0x18191c, roughness: 0.6 });
     this.paint = new THREE.BatchedMesh(capacity * 2, vPaint, undefined, paintMat);
     this.glass = new THREE.BatchedMesh(capacity, vGlass, undefined, glassMat);
     this.trim = new THREE.BatchedMesh(capacity, vTrim, undefined, trimMat);
