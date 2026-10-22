@@ -103,7 +103,6 @@ export const CONFIG = {
     chaseLookAhead: 4,
     chaseStiffness: 6,         // positional smoothing
     speedFovBoost: 14,         // extra FOV at top speed
-    cockpitOffset: [0.36, 1.18, -0.2], // driver eye in car space (+x = left seat, LHD)
     topHeight: 70,
     cinematicRadius: 18,
     cinematicHeight: 7,
@@ -118,16 +117,38 @@ export const CONFIG = {
   },
 
   traffic: {
-    count: 34,
-    minSpeedKmh: 30,
-    maxSpeedKmh: 50,
+    // Moving vehicles kept alive around the player, per density setting.
+    density: { low: 18, medium: 34, high: 56 },
+    defaultDensity: 'medium',
+    spawnRadius: [85, 230],    // new vehicles appear in this ring around the player
+    despawnRadius: 270,        // and are recycled beyond this distance
     turnSpeedKmh: 18,
-    acceleration: 4,           // m/s^2
-    braking: 9,
-    safeDistance: 9,           // start slowing when a car is closer than this
-    stopDistance: 5,
-    intersectionWaitTimeout: 4,// seconds before a waiting car proceeds anyway
+    // Intelligent Driver Model: smooth following and stopping.
+    minGap: 2.2,               // bumper-to-bumper gap when stopped (m)
+    headway: 1.3,              // desired time gap to the vehicle ahead (s)
+    emergencyBraking: 9,       // hard cap on deceleration (m/s^2)
+    indicatorDistance: 35,     // start indicating this far before a turn
+    honkDelay: 2.5,            // seconds blocked by the player before honking
+    intersectionWaitTimeout: 4,// unsignalised junctions: proceed after waiting this long
+    parkedChance: 0.16,         // chance a kerb between two junctions has parked cars
     colors: [0xd23a3a, 0x2f6fd6, 0xf2f2f2, 0x222428, 0xf0c419, 0x3aa856, 0x8a8f99, 0xe07b2a, 0x5b3fa8],
+    // AI vehicle mix. speed in km/h; accel / decel = IDM comfortable rates (m/s^2).
+    types: {
+      car: { weight: 44, shapes: ['sedan', 'hatchback', 'suv', 'pickup', 'sports'], speed: [34, 52], accel: 2.6, decel: 4 },
+      taxi: { weight: 10, shapes: ['taxi'], colors: [0xf2c419], speed: [36, 52], accel: 2.6, decel: 4 },
+      bus: { weight: 6, shapes: ['bus'], colors: [0x2f6fd6, 0xd23a3a, 0x3aa856, 0xe8e8e4], speed: [28, 40], accel: 1.2, decel: 3 },
+      truck: { weight: 8, shapes: ['truck'], colors: [0xd23a3a, 0x2f6fd6, 0xf2f2f2, 0x3aa856], speed: [30, 44], accel: 1.3, decel: 3 },
+      motorbike: { weight: 14, shapes: ['motorbike'], speed: [40, 58], accel: 3.6, decel: 5.5 },
+      tuktuk: { weight: 18, shapes: ['tuktuk'], colors: [0x2e8b57, 0xf2c419, 0x8b1e2d, 0x1f5fbf, 0x222428], speed: [26, 40], accel: 1.8, decel: 3.5 },
+    },
+  },
+
+  trafficLights: {
+    green: 12,                 // seconds per axis
+    yellow: 3,
+    allRed: 1.5,
+    walkFlash: 4,              // last seconds of green: "don't start crossing"
+    redLightPenalty: 100,      // score lost for running a red light
   },
 
   audio: {
@@ -139,8 +160,150 @@ export const CONFIG = {
 
   player: {
     color: 0xe23b2e,
+    car: 'sedan',
   },
+
+  /**
+   * Player car catalogue. `CONFIG.car` above is the shared baseline; each
+   * entry overrides it. The headline stats (mass, top speed, torque, grip,
+   * braking, steering, drift) feed the physics directly (see makeCarConfig),
+   * `shape` picks the procedural body and `sound` the engine voice.
+   */
+  cars: {
+    hatchback: {
+      name: 'Metro Hatch',
+      shape: 'hatchback',
+      mass: 1050,
+      topSpeedKmh: 175,
+      peakTorque: 175,
+      grip: 1.12,
+      brakeForce: 9500,
+      steering: 1.1,           // multiplier on lock and steering rate
+      drift: 0.35,             // 0 = planted, 1 = tail-happy
+      wheelBase: 2.42, cgToFront: 1.1, cgHeight: 0.55,
+      wheelRadius: 0.31,
+      dragCoefficient: 0.4,
+      sound: { cylinders: 4, pitch: 1.15, tone: 1.1, rough: 0.12, sub: 0.25 },
+    },
+    sedan: {
+      name: 'City Sedan',
+      shape: 'sedan',
+      mass: 1250,
+      topSpeedKmh: 210,
+      peakTorque: 320,
+      grip: 1.15,
+      brakeForce: 11000,
+      steering: 1.0,
+      drift: 0.45,
+      wheelBase: 2.6, cgToFront: 1.25, cgHeight: 0.55,
+      dragCoefficient: 0.42,
+      sound: { cylinders: 4, pitch: 1.0, tone: 1.0, rough: 0.18, sub: 0.35 },
+    },
+    sports: {
+      name: 'Vento GT',
+      shape: 'sports',
+      mass: 1320,
+      topSpeedKmh: 270,
+      peakTorque: 520,
+      grip: 1.32,
+      brakeForce: 15500,
+      steering: 1.08,
+      drift: 0.65,
+      wheelBase: 2.65, cgToFront: 1.35, cgHeight: 0.45,
+      dragCoefficient: 0.32,
+      shiftUpRpm: 7000, redlineRpm: 7800,
+      sound: { cylinders: 6, pitch: 1.05, tone: 1.45, rough: 0.1, sub: 0.3 },
+    },
+    suv: {
+      name: 'Ridge SUV',
+      shape: 'suv',
+      mass: 1950,
+      topSpeedKmh: 185,
+      peakTorque: 450,
+      grip: 1.02,
+      brakeForce: 14000,
+      steering: 0.85,
+      drift: 0.2,
+      wheelBase: 2.85, cgToFront: 1.4, cgHeight: 0.8,
+      dragCoefficient: 0.55,
+      wheelRadius: 0.42,
+      redlineRpm: 6200, shiftUpRpm: 5600, shiftDownRpm: 2300,
+      sound: { cylinders: 6, pitch: 0.82, tone: 0.8, rough: 0.2, sub: 0.45 },
+    },
+    pickup: {
+      name: 'Haul V8',
+      shape: 'pickup',
+      mass: 2100,
+      topSpeedKmh: 190,
+      peakTorque: 460,
+      grip: 1.0,
+      brakeForce: 13500,
+      steering: 0.8,
+      drift: 0.75,             // light rear end, big torque
+      wheelBase: 3.2, cgToFront: 1.45, cgHeight: 0.75,
+      dragCoefficient: 0.58,
+      wheelRadius: 0.42,
+      redlineRpm: 6000, shiftUpRpm: 5400, shiftDownRpm: 2200,
+      sound: { cylinders: 8, pitch: 0.7, tone: 0.75, rough: 0.32, sub: 0.6 },
+    },
+    tuktuk: {
+      name: 'Tuk-Tuk',
+      shape: 'tuktuk',
+      mass: 420,
+      topSpeedKmh: 70,
+      peakTorque: 26,
+      grip: 0.95,
+      brakeForce: 3600,
+      steering: 1.25,
+      drift: 0.5,
+      wheelBase: 1.7, cgToFront: 0.95, cgHeight: 0.6,
+      dragCoefficient: 0.5,
+      rollingResistance: 6,
+      wheelRadius: 0.25,
+      gearRatios: [3.6, 2.3, 1.6, 1.15],
+      finalDrive: 4.6,
+      redlineRpm: 7500, shiftUpRpm: 6800, shiftDownRpm: 3000, peakTorqueRpm: 5000,
+      sound: { cylinders: 1, pitch: 1.6, tone: 1.3, rough: 0.45, sub: 0.1, buzz: true },
+    },
+  },
+
+  /** Preset paint colours offered in the garage. */
+  paintColors: [0xe23b2e, 0xf2f2f2, 0x1d1f24, 0x2f6fd6, 0xf0c419, 0x3aa856, 0xe07b2a, 0x8a8f99],
 };
+
+/**
+ * Full physics config for a car from the catalogue: CONFIG.car baseline plus
+ * the car's overrides, with the headline stats translated into tyre / steering
+ * parameters.
+ */
+export function makeCarConfig(id) {
+  const def = CONFIG.cars[id] || CONFIG.cars.sedan;
+  const base = CONFIG.car;
+  const drift = def.drift ?? 0.45;
+  const steer = def.steering ?? 1;
+  const cfg = { ...base };
+  for (const k in def) if (k in base) cfg[k] = def[k];
+  cfg.id = id in CONFIG.cars ? id : 'sedan';
+  cfg.name = def.name;
+  cfg.shape = def.shape;
+  cfg.sound = def.sound;
+  cfg.tireGrip = def.grip ?? base.tireGrip;
+  // Drift tendency: less rear bias, a looser handbrake and a stronger friction circle.
+  cfg.rearGripBias = 1.2 - drift * 0.2;
+  cfg.handbrakeRearGrip = 0.62 - drift * 0.3;
+  cfg.frictionCircle = 0.3 + drift * 0.5;
+  cfg.yawDamping = base.yawDamping * (1.2 - drift * 0.5) * (cfg.mass / base.mass);
+  // Cornering stiffness scales with load so heavy cars aren't twitchy.
+  const load = cfg.mass / base.mass;
+  cfg.corneringStiffnessFront = base.corneringStiffnessFront * load;
+  cfg.corneringStiffnessRear = base.corneringStiffnessRear * load;
+  cfg.maxSteerAngle = base.maxSteerAngle * Math.min(steer, 1.1);
+  cfg.steerRate = base.steerRate * steer;
+  cfg.steerSpeedFactor = base.steerSpeedFactor / steer;
+  cfg.engineBraking = base.engineBraking * load;
+  cfg.handbrakeForce = base.handbrakeForce * load;
+  return cfg;
+}
 
 // Derived helpers -----------------------------------------------------------
 export const KMH = 1 / 3.6; // multiply km/h by this to get m/s

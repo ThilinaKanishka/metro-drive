@@ -1,23 +1,22 @@
 import './style.css';
 import { Game } from './game.js';
 
-// Entry point: build the game (world, car, traffic...) then wait for the player
-// to press Start. Audio can only begin after that first user gesture.
+// Entry point: build the game (world, car, traffic...) behind the main menu.
+// Play / Garage both lead through the garage; "Drive" there starts the game
+// (a user gesture, so audio can begin).
 const game = new Game(document.getElementById('app'));
 const startBtn = document.getElementById('start-btn');
 const startScreen = document.getElementById('start');
 
 startBtn.disabled = false;
-startBtn.textContent = 'Start Driving';
+startBtn.textContent = 'Play';
 
-function begin() {
-  if (game.started) return;
-  startScreen.classList.add('hidden');
-  game.start();
-}
-startBtn.addEventListener('click', begin);
+startBtn.addEventListener('click', () => game.openGarage('menu'));
+document.getElementById('menu-garage').addEventListener('click', () => game.openGarage('menu'));
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Enter' && !startScreen.classList.contains('hidden')) begin();
+  if (e.code === 'Enter' && game.state === 'menu' && !startScreen.classList.contains('hidden')) {
+    game.openGarage('menu');
+  }
 });
 
 // Expose for debugging in the console.

@@ -14,6 +14,28 @@ export class EngineSound {
     this.ctx = null;
     this.muted = false;
     this.ready = false;
+    this.volume = CONFIG.audio.masterVolume;
+    this.profile = { cylinders: CONFIG.audio.cylinders, pitch: 1, tone: 1, rough: 0.18, sub: 0.35 };
+    this.redline = CONFIG.car.redlineRpm;
+  }
+
+  /**
+   * Per-car engine voice: cylinders and pitch set the firing frequency,
+   * tone scales the filter brightness, rough the uneven-firing tremolo,
+   * sub the low octave and buzz swaps to a raspy square wave (2-strokes).
+   */
+  setProfile(profile, redline) {
+    this.profile = { ...this.profile, ...profile };
+    this.redline = redline;
+    this._applyProfile();
+  }
+
+  _applyProfile() {
+    if (!this.ready) return;
+    const p = this.profile;
+    this.oscMain.type = p.buzz ? 'square' : 'sawtooth';
+    this.subGain.gain.value = p.sub ?? 0.35;
+    this.lfoDepth.gain.value = p.rough ?? 0.18;
   }
 
   /** Must be called from a user-gesture handler (click / keydown). */
@@ -23,10 +45,9 @@ export class EngineSound {
     if (!AC) return;
     const ctx = new AC();
     this.ctx = ctx;
-    const cfg = CONFIG.audio;
 
     this.master = ctx.createGain();
-    this.master.gain.value = this.muted ? 0 : cfg.masterVolume;
+    this.master.gain.value = this.muted ? 0 : this.volume;
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -12;
     comp.ratio.value = 4;
@@ -54,18 +75,20 @@ export class EngineSound {
       g.gain.value = gain;
       o.connect(g).connect(mix);
       o.start();
+      o.gainNode = g;
       return o;
     };
     this.oscMain = mkOsc('sawtooth', 0.6);
     this.oscSub = mkOsc('square', 0.35);
     this.oscHigh = mkOsc('sawtooth', 0.18, 9);
+    this.subGain = this.oscSub.gainNode;
 
     // Uneven "firing" roughness: tremolo at half the firing rate.
     this.lfo = ctx.createOscillator();
     this.lfo.type = 'sine';
-    const lfoDepth = ctx.createGain();
-    lfoDepth.gain.value = 0.18;
-    this.lfo.connect(lfoDepth).connect(mix.gain);
+    this.lfoDepth = ctx.createGain();
+    this.lfoDepth.gain.value = 0.18;
+    this.lfo.connect(this.lfoDepth).connect(mix.gain);
     this.lfo.start();
 
     // --- Noise-based layers ----------------------------------------------------
@@ -101,14 +124,21 @@ export class EngineSound {
 
     this.noise = noise;
     this.ready = true;
+    this._applyProfile();
   }
 
   toggleMute() {
     this.muted = !this.muted;
     if (this.ready) {
-      this.master.gain.setTargetAtTime(this.muted ? 0 : CONFIG.audio.masterVolume, this.ctx.currentTime, 0.05);
+      this.master.gain.setTargetAtTime(this.muted ? 0 : this.volume, this.ctx.currentTime, 0.05);
     }
     return this.muted;
+  }
+
+  /** Master volume 0..1 (settings). */
+  setVolume(v) {
+    this.volume = v;
+    if (this.ready && !this.muted) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
   }
 
   setPaused(paused) {
@@ -126,14 +156,17 @@ export class EngineSound {
     const k = 0.04; // smoothing time constant (s)
 
     // Firing frequency of a 4-stroke engine: rpm/60 * cylinders/2.
-    const f = (rpm / 60) * (cfg.cylinders / 2);
+    // Single-cylinder engines fire every other turn - too low to read as an
+    // engine - so they get the 2-stroke rate (once per turn) instead.
+    const pr = this.profile;
+    const f = (rpm / 60) * Math.max(pr.cylinders / 2, 1) * pr.pitch;
     this.oscMain.frequency.setTargetAtTime(f, t, k);
     this.oscSub.frequency.setTargetAtTime(f * 0.5, t, k);
     this.oscHigh.frequency.setTargetAtTime(f * 2, t, k);
     this.lfo.frequency.setTargetAtTime(f * 0.5, t, k);
 
-    const rpmN = Math.min(rpm / CONFIG.car.redlineRpm, 1);
-    this.engineFilter.frequency.setTargetAtTime(250 + rpmN * 1400 + throttle * 1300, t, k);
+    const rpmN = Math.min(rpm / this.redline, 1);
+    this.engineFilter.frequency.setTargetAtTime((250 + rpmN * 1400 + throttle * 1300) * pr.tone, t, k);
     this.engineGain.gain.setTargetAtTime(cfg.engineVolume * (0.45 + throttle * 0.4 + rpmN * 0.35), t, k);
 
     // Screech: gain follows slip, pitch wobbles a little.
@@ -142,6 +175,35 @@ export class EngineSound {
 
     const wind = Math.min(speed / 55, 1);
     this.windGain.gain.setTargetAtTime(wind * wind * 0.35, t, 0.2);
+  }
+
+  /**
+   * Car horn: two detuned square waves through a band-pass (the classic
+   * dual-tone horn). volume 0..1 (distance attenuated by the caller),
+   * pitch scales the tones (small vehicles beep higher, buses lower).
+   */
+  honk(volume = 1, pitch = 1, duration = 0.45) {
+    if (!this.ready || volume < 0.02) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 900 * pitch;
+    bp.Q.value = 1.2;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.28 * volume, t + 0.02);
+    g.gain.setValueAtTime(0.28 * volume, t + duration - 0.05);
+    g.gain.linearRampToValueAtTime(0, t + duration);
+    bp.connect(g).connect(this.master);
+    for (const f of [400, 500]) {
+      const o = ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.value = f * pitch;
+      o.connect(bp);
+      o.start(t);
+      o.stop(t + duration + 0.02);
+    }
   }
 
   /** Collision thump; strength in m/s of impact speed. */

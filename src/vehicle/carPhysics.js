@@ -22,6 +22,7 @@ export class CarPhysics {
     this.a = cfg.cgToFront;
     this.b = cfg.wheelBase - cfg.cgToFront;
     this.inertia = cfg.mass * (this.a * this.a + this.b * this.b) * 0.5 * cfg.inertiaScale;
+    this.gripScale = 1;     // surface grip multiplier (wet roads < 1)
     this.reset(0, 0, 0);
   }
 
@@ -139,8 +140,9 @@ export class CarPhysics {
     const transfer = (m * this.longAccel * c.cgHeight) / L;
     const loadF = Math.max(m * G * (b / L) - transfer, m * G * 0.15);
     const loadR = Math.max(m * G * (a / L) + transfer, m * G * 0.15);
-    const gripF = c.tireGrip * loadF;
-    const gripR = c.tireGrip * loadR * (controls.handbrake ? c.handbrakeRearGrip : c.rearGripBias);
+    const mu = c.tireGrip * this.gripScale;
+    const gripF = mu * loadF;
+    const gripR = mu * loadR * (controls.handbrake ? c.handbrakeRearGrip : c.rearGripBias);
 
     // Rear-wheel drive: traction is limited by rear grip; excess = wheelspin.
     const maxDrive = gripR * 0.98;
