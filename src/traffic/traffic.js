@@ -49,6 +49,7 @@ export class Traffic {
     this.density = this.cfg.defaultDensity;
     this.radiusScale = 1;      // draw-distance setting scales the spawn ring
     this.speedScale = 1;       // weather: everyone drives a little slower in rain / fog
+    this.countScale = 1;       // graphics quality scales the vehicle count
     this._uid = 0;
     this._circles = [];
     this.onSpawn = null;       // (vehicle) => void   (renderer hooks)
@@ -67,7 +68,7 @@ export class Traffic {
   }
 
   get target() {
-    return this.cfg.density[this.density] ?? this.cfg.density.medium;
+    return Math.round((this.cfg.density[this.density] ?? this.cfg.density.medium) * this.countScale);
   }
 
   setDensity(level) {

@@ -77,6 +77,7 @@
         <div class="menu-buttons">
           <button id="start-btn" class="btn primary" disabled>Loading…</button>
           <button id="menu-garage" class="btn">Garage</button>
+          <button id="menu-settings" class="btn">Settings</button>
         </div>
         <div class="controls">
           <div><kbd>W</kbd><kbd>↑</kbd> Accelerate</div>
@@ -119,6 +120,15 @@
       </div>
     </div>
 
+    <!-- Settings -->
+    <div id="settings" class="overlay hidden menu-screen">
+      <div class="panel">
+        <h2>Settings</h2>
+        <div id="settings-rows" class="settings-rows"></div>
+        <button id="settings-back" class="btn primary">Done</button>
+      </div>
+    </div>
+
     <!-- Pause menu -->
     <div id="pause" class="overlay hidden menu-screen">
       <div class="panel small">
@@ -126,6 +136,7 @@
         <div class="menu-buttons vertical">
           <button id="pause-resume" class="btn primary">Resume</button>
           <button id="pause-garage" class="btn">Garage</button>
+          <button id="pause-settings" class="btn">Settings</button>
           <button id="pause-density" class="btn">Traffic: medium</button>
           <button id="pause-restart" class="btn">Restart</button>
           <button id="pause-quit" class="btn ghost">Main menu</button>

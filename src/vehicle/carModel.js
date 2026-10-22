@@ -208,7 +208,7 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
       hood.geometry.dispose();
       for (const m of materials) m.dispose();
       root.traverse((o) => {
-        if (o.isMesh && o.geometry.type === 'BoxGeometry') o.geometry.dispose();
+        if (o.isMesh && (o.geometry.type === 'BoxGeometry' || o.geometry.type === 'TorusGeometry')) o.geometry.dispose();
       });
     },
   };

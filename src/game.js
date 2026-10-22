@@ -21,6 +21,7 @@ import { Weather } from './world/weather.js';
 import { ReflectionEnvironment } from './world/environment.js';
 import { StreetProps } from './world/props.js';
 import { CityAudio } from './audio/cityAudio.js';
+import { SettingsMenu } from './ui/settings.js';
 import { Hud } from './ui/hud.js';
 import { Minimap } from './ui/minimap.js';
 import { setupTouchControls } from './ui/touch.js';
@@ -82,8 +83,6 @@ export class Game {
     // Weather + reflections (car paint / glass, wet roads).
     const roadMats = this.city.roads.userData.materials;
     this.weather = new Weather(scene, camera, roadMats);
-    this.weather.set(this.prefs.weather ?? CONFIG.weather.default);
-    this.weather.snap();
     this.env = new ReflectionEnvironment(this.renderer);
     for (const m of Object.values(roadMats)) {
       m.userData.envManual = true;
@@ -114,7 +113,23 @@ export class Game {
     this.time = 0;
 
     this._bindActions();
-    handleResize(this.renderer, camera, () => this.garage.resize());
+    this._resize = handleResize(this.renderer, camera, () => this.garage.resize());
+
+    // Settings (persisted); touch devices default to Low graphics.
+    const touch = window.matchMedia('(pointer: coarse)').matches;
+    this.settings = {
+      quality: touch ? 'low' : 'medium',
+      volume: CONFIG.audio.masterVolume,
+      density: this.prefs.density ?? CONFIG.traffic.defaultDensity,
+      time: 'auto',
+      weather: this.prefs.weather ?? CONFIG.weather.default,
+      ...this.prefs.settings,
+    };
+    this.settingsMenu = new SettingsMenu({
+      onChange: (patch) => this.applySettings(patch),
+      onClose: () => this._closeSettings(),
+    });
+    this.applySettings({}, true);
 
     this._player = { x: 0, z: 0, heading: 0, vx: 0, vz: 0, circles: [] };
     this.loop = new Loop({
@@ -242,7 +257,12 @@ export class Game {
       this.dayNight.toggle();
       this.hud.toast(this.dayNight.night > 0.5 ? 'Sunrise…' : 'Nightfall…');
     });
-    on('cycle', () => this.hud.toast(this.dayNight.toggleAuto() ? 'Time cycle on' : 'Time cycle paused'));
+    on('cycle', () => {
+      const auto = this.dayNight.toggleAuto();
+      this.settings.time = auto ? 'auto' : this.dayNight.night > 0.5 ? 'night' : 'day';
+      savePrefs({ settings: this.settings });
+      this.hud.toast(auto ? 'Time cycle on' : 'Time cycle paused');
+    });
     on('mute', () => this.hud.toast(this.audio.toggleMute() ? 'Sound off' : 'Sound on'));
     // R: repair any damage (paid from the wallet when possible) and put the
     // car back on the nearest road.
@@ -275,6 +295,7 @@ export class Game {
     const click = (id, fn) => document.getElementById(id).addEventListener('click', fn);
     click('pause-resume', () => this.setPaused(false));
     click('pause-garage', () => this.openGarage('pause'));
+    click('pause-settings', () => this.openSettings('pause'));
     click('pause-restart', () => this.restart());
     click('pause-quit', () => this.quitToMenu());
     const densityBtn = document.getElementById('pause-density');
@@ -284,7 +305,6 @@ export class Game {
       this.setDensity(levels[(levels.indexOf(this.traffic.density) + 1) % levels.length]);
       showDensity();
     });
-    showDensity();
     // Auto-pause when the tab is hidden.
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.state === 'playing') this.setPaused(true);
@@ -292,8 +312,78 @@ export class Game {
   }
 
   setDensity(level) {
-    this.traffic.setDensity(level);
-    savePrefs({ density: this.traffic.density });
+    this.applySettings({ density: level });
+  }
+
+  /**
+   * Apply (and persist) settings. `initial` applies everything, otherwise
+   * only what changed, so e.g. moving the volume slider doesn't recompile
+   * shaders.
+   */
+  applySettings(patch, initial = false) {
+    const prev = initial ? {} : { ...this.settings };
+    const st = Object.assign(this.settings, patch);
+    savePrefs({ settings: st });
+    const changed = (k) => initial || prev[k] !== st[k];
+
+    if (changed('quality')) {
+      const q = CONFIG.quality[st.quality] || CONFIG.quality.medium;
+      CONFIG.render.maxPixelRatio = q.pixelRatio;
+      CONFIG.render.fogFar = q.drawDistance;
+      this._resize();
+      if (this.renderer.shadowMap.enabled !== q.shadows) {
+        this.renderer.shadowMap.enabled = q.shadows;
+        // Shadow on/off changes shader programs: recompile everything once.
+        this.scene.traverse((o) => {
+          if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true;
+        });
+      }
+      this.dayNight.setShadowMapSize(q.shadowMapSize);
+      this.trafficRenderer.drawDistance = q.drawDistance * 0.8;
+      this.trafficRenderer.detailDistance = q.drawDistance * 0.35;
+      this.traffic.countScale = q.trafficScale;
+      this.traffic.radiusScale = q.drawDistance / 420;
+      this.peds.setCount(q.pedestrians);
+      this.peds.cfg.drawDistance = q.pedDrawDistance;
+      this.peds.cfg.animDistance = q.pedDrawDistance * 0.5;
+      this.headlightShadows = q.headlightShadow;
+      this.car.model.setHeadlightShadow(q.headlightShadow);
+    }
+    if (changed('volume')) this.audio.setVolume(st.volume);
+    if (changed('density')) {
+      this.traffic.setDensity(st.density);
+      document.getElementById('pause-density').textContent = `Traffic: ${this.traffic.density}`;
+    }
+    if (changed('time')) {
+      const dn = this.dayNight;
+      dn.autoCycle = st.time === 'auto';
+      if (st.time === 'day') dn.time = 0.42;
+      if (st.time === 'night') dn.time = 0.92;
+      dn.transition = null;
+    }
+    if (changed('weather')) {
+      this.weather.set(st.weather);
+      if (initial) this.weather.snap();
+    }
+  }
+
+  /** Settings screen from the main menu ('menu') or the pause menu ('pause'). */
+  openSettings(from) {
+    this.settingsFrom = from;
+    this.state = 'settings';
+    document.getElementById('start').classList.add('hidden');
+    document.getElementById('pause').classList.add('hidden');
+    this.settingsMenu.open(this.settings);
+  }
+
+  _closeSettings() {
+    if (this.settingsFrom === 'pause') {
+      this.state = 'paused';
+      document.getElementById('pause').classList.remove('hidden');
+    } else {
+      this.state = 'menu';
+      document.getElementById('start').classList.remove('hidden');
+    }
   }
 
   /** The player knocked someone over (they get up again a few seconds later). */

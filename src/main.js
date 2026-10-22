@@ -22,6 +22,7 @@ modeButtons.forEach((b) => b.addEventListener('click', () => {
 }));
 showMode();
 document.getElementById('menu-garage').addEventListener('click', () => game.openGarage('menu'));
+document.getElementById('menu-settings').addEventListener('click', () => game.openSettings('menu'));
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Enter' && game.state === 'menu' && !startScreen.classList.contains('hidden')) {
     game.openGarage('menu');

@@ -184,6 +184,25 @@ export const CONFIG = {
     repairCostPerDamage: 300,  // $ for a full repair (R)
   },
 
+  /**
+   * Graphics presets (Settings → Graphics). drawDistance drives the fog,
+   * vehicle / pedestrian culling and the traffic spawn ring.
+   */
+  quality: {
+    low: {
+      shadows: false, shadowMapSize: 1024, pixelRatio: 1, headlightShadow: false,
+      pedestrians: 50, trafficScale: 0.7, drawDistance: 300, pedDrawDistance: 80,
+    },
+    medium: {
+      shadows: true, shadowMapSize: 2048, pixelRatio: 1.5, headlightShadow: false,
+      pedestrians: 110, trafficScale: 1, drawDistance: 420, pedDrawDistance: 120,
+    },
+    high: {
+      shadows: true, shadowMapSize: 4096, pixelRatio: 2, headlightShadow: true,
+      pedestrians: 180, trafficScale: 1.3, drawDistance: 560, pedDrawDistance: 160,
+    },
+  },
+
   weather: {
     default: 'random',         // 'clear' | 'rain' | 'fog' | 'random'
     randomWeights: { clear: 0.55, rain: 0.25, fog: 0.2 },
