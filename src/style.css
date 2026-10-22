@@ -346,3 +346,11 @@ body.touch #popups { top: auto; bottom: 190px; }
 @media (max-width: 560px) {
   .setting-row .mode-select button { padding: 6px 9px; font-size: 12px; }
 }
+
+/* ---------- Loading screen ---------- */
+#loading { z-index: 40; background: var(--bg); }
+.loading-box { width: min(420px, 90vw); text-align: center; }
+.loading-box h1 { margin-bottom: 26px; }
+.progress { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.progress i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #4fc3f7, var(--accent)); transition: width 0.2s; }
+#loading-text { color: var(--muted); font-size: 13px; margin-top: 12px; }

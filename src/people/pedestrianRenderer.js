@@ -71,7 +71,7 @@ export class PedestrianRenderer {
     for (const p of this.peds.list) {
       // Animation phase follows ground speed (stride length ~0.75 m).
       p.phase += p.speed * dt * 4.3 / p.scale;
-      if (!p.visible || n >= this.max) continue;
+      if (!p.visible || p.modelled || n >= this.max) continue;
       // Behind the camera?
       const rx = p.x - eye.x;
       const rz = p.z - eye.z;

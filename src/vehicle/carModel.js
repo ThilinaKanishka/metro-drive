@@ -30,7 +30,10 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
     specularIntensity: 1, envMapIntensity: 1.4,
   });
   // Satin black plastic for bumpers / skirts.
-  const trimMat = new THREE.MeshStandardMaterial({ color: 0x18191c, roughness: 0.6 });
+  // Trim carries per-vertex colours (black plastic, light bars, signs...).
+  const trimMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 });
+  // Chrome / polished alloy (rims, grilles, bumpers on glTF models).
+  const rimMat = new THREE.MeshStandardMaterial({ color: 0xd8dce2, roughness: 0.14, metalness: 1 });
   const secondaryMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e4, roughness: 0.5 });
 
   // Paint geometry is cloned so crash damage can dent this car only.
@@ -39,6 +42,11 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
   const trim = new THREE.Mesh(g.trim, trimMat);
   paint.castShadow = trim.castShadow = cabin.castShadow = true;
   body.add(paint, cabin, trim);
+  if (g.chrome) {
+    const chrome = new THREE.Mesh(g.chrome, rimMat);
+    chrome.castShadow = true;
+    body.add(chrome);
+  }
   if (g.secondary) body.add(new THREE.Mesh(g.secondary, secondaryMat));
 
   // Lamps -------------------------------------------------------------------
@@ -127,11 +135,14 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
   interior.add(dash, seats);
   body.add(interior);
 
-  // Shown while the exterior shell is hidden: a hood slice, A-pillars, door
-  // cards, floor, headliner and the steering wheel.
+  // Cockpit-only parts, shown while the exterior shell is hidden: a hood
+  // slice, A-pillars, door cards, floor, headliner and the steering wheel.
   const cockpit = new THREE.Group();
   cockpit.visible = false;
-  const hood = new THREE.Mesh(extrudeProfile(ck.hood, ck.hoodWidth, 0.06), paintMat.clone());
+  const hood = new THREE.Mesh(
+    ck.hood ? extrudeProfile(ck.hood, ck.hoodWidth, 0.06) : new THREE.BufferGeometry(),
+    paintMat.clone(),
+  );
   const darkMat = new THREE.MeshStandardMaterial({ color: 0x1b1c20, roughness: 0.9 });
   const headlinerMat = new THREE.MeshStandardMaterial({ color: 0x6a6d73, roughness: 1 });
   const floorY = ck.door ? ck.door[1] - 0.2 : 0.6;
@@ -162,8 +173,6 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
 
   // Wheels: pivot (steering, yaw) -> spinner (rolling, pitch).
   const tyreMat = new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 0.92 });
-  // Chrome / polished alloy.
-  const rimMat = new THREE.MeshStandardMaterial({ color: 0xd8dce2, roughness: 0.14, metalness: 1 });
   const r = shape.wheelRadius;
   const wheels = shape.wheels.map(([x, z, front]) => {
     const pivot = new THREE.Group();
@@ -173,6 +182,8 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
     tyre.castShadow = true;
     const rim = new THREE.Mesh(u.rim, rimMat);
     spinner.scale.set(shape.wheelWidth, r, r);
+    // Right-hand wheels are turned around so the rim faces outward.
+    if (x < 0) spinner.rotation.y = Math.PI;
     spinner.add(tyre, rim);
     pivot.add(spinner);
     root.add(pivot);
@@ -205,7 +216,7 @@ export function createPlayerCar(shapeType = 'sedan', color = CONFIG.player.color
     setCockpit(on) {
       cockpit.visible = on;
       for (const g of headGlows) g.visible = !on;
-      for (const m of [paintMat, glassMat, secondaryMat]) {
+      for (const m of [paintMat, glassMat, secondaryMat, trimMat, rimMat]) {
         m.colorWrite = !on;
         m.depthWrite = !on && m !== glassMat;
       }

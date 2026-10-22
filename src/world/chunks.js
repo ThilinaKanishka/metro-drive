@@ -8,7 +8,9 @@ import * as THREE from 'three';
  * around the car). A single city-wide InstancedMesh can never be culled.
  *
  * items: [{ x, z, matrix: THREE.Matrix4, color?: THREE.Color }]
- * Returns a Group of InstancedMeshes; `onMesh(mesh)` customises each one.
+ * Returns a Group of InstancedMeshes (each tagged userData.chunk with its
+ * grid key, so LOD sets built from the same items line up); `onMesh(mesh)`
+ * customises each one.
  */
 export function chunkedInstances(geometry, material, items, { chunk = 140, onMesh } = {}) {
   const group = new THREE.Group();
@@ -18,7 +20,7 @@ export function chunkedInstances(geometry, material, items, { chunk = 140, onMes
     if (!buckets.has(key)) buckets.set(key, []);
     buckets.get(key).push(it);
   }
-  for (const list of buckets.values()) {
+  for (const [key, list] of buckets) {
     const mesh = new THREE.InstancedMesh(geometry, material, list.length);
     list.forEach((it, i) => {
       mesh.setMatrixAt(i, it.matrix);
@@ -26,6 +28,7 @@ export function chunkedInstances(geometry, material, items, { chunk = 140, onMes
     });
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
+    mesh.userData.chunk = key;
     onMesh?.(mesh);
     group.add(mesh);
   }

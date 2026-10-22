@@ -77,9 +77,10 @@ export function buildRoads(layout) {
   const shape = roundedRect(half, corner);
   const bevel = 0.06;
   const slabGeo = new THREE.ExtrudeGeometry(shape, {
-    depth: h - bevel, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2, curveSegments: 6,
+    depth: h - bevel * 2, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2, curveSegments: 6,
   });
-  // Shape XY -> world XZ, extrusion up.
+  // Shape XY -> world XZ, extrusion up; with the bevel the slab spans y 0..h
+  // (plazas and lawns sit just above it).
   slabGeo.rotateX(-Math.PI / 2);
   slabGeo.translate(0, bevel, 0);
   const paving = textureSet('sidewalk', 0.45);

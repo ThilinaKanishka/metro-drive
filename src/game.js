@@ -16,6 +16,8 @@ import { TrafficRenderer } from './traffic/trafficRenderer.js';
 import { TrafficLights } from './traffic/trafficLights.js';
 import { Pedestrians } from './people/pedestrians.js';
 import { PedestrianRenderer } from './people/pedestrianRenderer.js';
+import { CharacterLod } from './people/characterLod.js';
+import { assets } from './core/assets.js';
 import { carCircles } from './vehicle/collision.js';
 import { Score } from './gameplay/score.js';
 import { Missions, MODES } from './gameplay/missions.js';
@@ -23,6 +25,8 @@ import { Weather } from './world/weather.js';
 import { ReflectionEnvironment } from './world/environment.js';
 import { StreetProps } from './world/props.js';
 import { CityAudio } from './audio/cityAudio.js';
+import { Vegetation } from './world/vegetation.js';
+import { CityDetails } from './world/cityDetails.js';
 import { SettingsMenu } from './ui/settings.js';
 import { PostFX } from './core/post.js';
 import { Hud } from './ui/hud.js';
@@ -67,9 +71,12 @@ export class Game {
     this.trafficRenderer = new TrafficRenderer(scene, this.traffic);
     this.traffic.onHonk = (v) => this._aiHonk(v);
     this.props = new StreetProps(scene, this.layout); // after parking, before pedestrians (idle spots)
+    this.vegetation = new Vegetation(scene, this.layout, this.city.trees);
+    this.details = new CityDetails(scene, this.layout);
     this.peds = new Pedestrians(this.layout, this.lights);
     this.peds.populate(this.car.physics.x, this.car.physics.z);
     this.pedRenderer = new PedestrianRenderer(scene, this.peds);
+    this.characters = new CharacterLod(scene, this.peds, assets.models.characters ?? []);
     this.traffic.peds = this.peds.list;
     this.peds.onHit = (ped, speed) => this._pedestrianHit(ped, speed);
 
@@ -205,6 +212,7 @@ export class Game {
       const ex = r.toneMappingExposure;
       r.toneMapping = THREE.ACESFilmicToneMapping;
       r.toneMappingExposure = 1;
+      r.shadowMap.needsUpdate = true; // (Medium only refreshes shadows every other frame)
       this.garage.render();
       r.toneMapping = tm;
       r.toneMappingExposure = ex;
@@ -431,6 +439,8 @@ export class Game {
       this.peds.setCount(q.pedestrians);
       this.peds.cfg.drawDistance = q.pedDrawDistance;
       this.peds.cfg.animDistance = q.pedDrawDistance * 0.5;
+      this.characters.maxNear = q.characters ?? 0;
+      if (!this.characters.maxNear) this.characters.clear();
       this.headlightShadows = q.headlightShadow;
       this.headlightMode = q.headlights;
       this.car.model.setHeadlightMode(q.headlights);
@@ -582,6 +592,8 @@ export class Game {
     if (this.shadowRate > 1 && this._frame % this.shadowRate === 0) this.renderer.shadowMap.needsUpdate = true;
     facadeUniforms.uSkyColor.value.copy(this.dayNight.skyUniforms.horizonColor.value);
     this.props.update(night);
+    this.vegetation.update(this.camera.position);
+    this.details.update(dt, night, this.camera.position, this.scene.fog.color);
     if (this.post.enabled) {
       if (this.post.opts.flare) this._sunVis += (this._sunVisibility() - this._sunVis) * Math.min(1, frameDt * 8);
       const top = Math.max(car.cfg.topSpeedKmh, 120) / 3.6;
@@ -589,6 +601,7 @@ export class Game {
     }
     this.trafficRenderer.update(night, this.camera.position, dt);
     this.peds.update(dt, pl, this.camera.position, night);
+    this.characters.update(dt);
     this.pedRenderer.update(dt, this.camera);
     car.damage.update(dt, car, this.renderer.domElement.clientHeight);
     this.time += dt;

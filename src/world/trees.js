@@ -61,6 +61,7 @@ export function buildTrees(layout) {
     chunkedInstances(roundGeo, leafMat, rounds, { onMesh: shadowy }),
     chunkedInstances(coneGeo, leafMat, cones, { onMesh: shadowy }),
   );
+  group.userData.items = { rounds, cones };
   return group;
 }
 

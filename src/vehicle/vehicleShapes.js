@@ -314,7 +314,30 @@ const DEFS = {
   }),
 };
 
-export const VEHICLE_TYPES = Object.keys(DEFS);
+const PROCEDURAL_TYPES = Object.keys(DEFS);
+/** Every shape name: procedural ones plus any registered glTF models. */
+export const VEHICLE_TYPES = [...PROCEDURAL_TYPES];
+
+// glTF-based shapes (see core/models.js) override procedural ones by name.
+const modelDefs = new Map();
+const TRIM_COLOR = new THREE.Color(0x18191c);
+
+/** Register a converted model (called before the game is built). */
+export function registerModelShape(name, def) {
+  modelDefs.set(name, def);
+  cache.delete(name);
+  if (!VEHICLE_TYPES.includes(name)) VEHICLE_TYPES.push(name);
+}
+
+/** Give a geometry a flat vertex colour (trim batches use vertex colours). */
+function withColor(geo, color) {
+  if (geo.getAttribute('color')) return geo;
+  const n = geo.getAttribute('position').count;
+  const c = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) c.set([color.r, color.g, color.b], i * 3);
+  geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  return geo;
+}
 
 /** Collision circles spanning a vehicle footprint: [{forward, radius}]. */
 export function circlesFor(length, width) {
@@ -326,13 +349,45 @@ export function circlesFor(length, width) {
   return out;
 }
 
-/** Built, cached shape for a vehicle type. */
+/** Built, cached shape for a vehicle type (model if registered, else procedural). */
 export function getVehicleShape(type) {
   let s = cache.get(type);
   if (s) return s;
-  const def = (DEFS[type] || DEFS.sedan)();
-  s = {
-    type,
+  const md = modelDefs.get(type);
+  if (md) {
+    s = {
+      type,
+      model: true,
+      length: md.length,
+      width: md.width,
+      height: md.height,
+      wheelRadius: md.wheelRadius,
+      wheelWidth: md.wheelWidth,
+      wheels: md.wheels,
+      geo: { paint: md.paint, secondary: null, glass: md.glass, trim: withColor(md.trim, TRIM_COLOR), chrome: md.chrome },
+      lamps: { head: md.head, tail: md.tail, indFront: md.indFront, indRear: md.indRear, reverse: md.reverse },
+      cockpit: md.cockpit,
+      circles: circlesFor(md.length, md.width),
+      lod: md.lod,
+    };
+    cache.set(type, s);
+    return s;
+  }
+  s = buildProcedural(type, type);
+  cache.set(type, s);
+  return s;
+}
+
+// Closest procedural body for model-only vehicle names (used if the model is missing).
+const FALLBACKS = {
+  van: 'suv', 'suv-luxury': 'suv', police: 'sedan', ambulance: 'truck', delivery: 'truck', 'truck-flat': 'truck', 'garbage-truck': 'truck',
+};
+
+/** Build a procedural shape (no cache lookup). */
+function buildProcedural(type, name) {
+  const def = (DEFS[type] || DEFS[FALLBACKS[type]] || DEFS.sedan)();
+  return {
+    type: name,
     length: def.length,
     width: def.width,
     height: def.height,
@@ -343,7 +398,8 @@ export function getVehicleShape(type) {
       paint: merge(def.paint),
       secondary: def.secondary ? merge(def.secondary) : null,
       glass: merge(def.glass),
-      trim: merge(def.trim),
+      trim: withColor(merge(def.trim), TRIM_COLOR),
+      chrome: null,
     },
     lamps: {
       head: def.head, tail: def.tail, indFront: def.indFront, indRear: def.indRear, reverse: def.reverse,
@@ -351,17 +407,37 @@ export function getVehicleShape(type) {
     cockpit: def.cockpit || null,
     circles: circlesFor(def.length, def.width),
   };
-  cache.set(type, s);
+}
+
+/**
+ * Procedural shape by name, ignoring registered models: the far LOD for
+ * model-based vehicles (named "proc:<type>").
+ */
+export function getProceduralShape(type) {
+  const key = `proc:${type}`;
+  let s = cache.get(key);
+  if (!s) {
+    s = buildProcedural(type, key);
+    cache.set(key, s);
+  }
   return s;
 }
 
 /** Shared unit geometries for wheels and lamps (scaled per instance). */
 let unit = null;
+let modelWheel = null;
+
+/** Use a glTF wheel (unit radius / width) instead of the procedural cylinder. */
+export function setModelWheel(w) {
+  modelWheel = w;
+  unit = null;
+}
+
 export function getUnitGeometries() {
   if (unit) return unit;
   unit = {
-    wheel: clean(new THREE.CylinderGeometry(1, 1, 1, 12).rotateZ(Math.PI / 2)),
-    rim: clean(new THREE.CylinderGeometry(0.6, 0.6, 1.08, 8).rotateZ(Math.PI / 2)),
+    wheel: modelWheel?.tyre ?? clean(new THREE.CylinderGeometry(1, 1, 1, 12).rotateZ(Math.PI / 2)),
+    rim: modelWheel?.rim ?? clean(new THREE.CylinderGeometry(0.6, 0.6, 1.08, 8).rotateZ(Math.PI / 2)),
     lamp: clean(new THREE.BoxGeometry(1, 1, 0.06)),
   };
   return unit;

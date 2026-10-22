@@ -1,55 +1,69 @@
 import * as THREE from 'three';
-import { getVehicleShape, getUnitGeometries, VEHICLE_TYPES } from '../vehicle/vehicleShapes.js';
+import { getVehicleShape, getProceduralShape, getUnitGeometries, VEHICLE_TYPES } from '../vehicle/vehicleShapes.js';
 
 const SECONDARY_COLOR = { taxi: 0xfff3c4, truck: 0xe8e8e4 };
 
 /**
  * Draws every AI vehicle (moving and parked, all body types) with:
- *  - three BatchedMeshes (paint + secondary, glass, trim): one draw call per
- *    material for all vehicle shapes, with per-object frustum culling
- *  - InstancedMeshes for tyres, lamps and night-time headlight pools
+ *  - four BatchedMeshes (clear-coat paint + secondary, glass, vertex-coloured
+ *    trim, chrome): one draw call per material for every vehicle shape, with
+ *    per-object frustum culling (camera and shadow camera)
+ *  - InstancedMeshes for tyres, rims, lamps and night-time headlight pools
  *
- * LOD: bodies beyond the draw distance are hidden; wheels, lamps and light
- * pools are only written for vehicles within `detailDistance` of the camera.
+ * LOD: glTF-based vehicles switch to their low-poly procedural shape beyond
+ * `lodDistance` (BatchedMesh.setGeometryIdAt), bodies beyond the draw
+ * distance are hidden, and wheels / lamps / light pools are only written for
+ * vehicles within `detailDistance` of the camera.
  */
 export class TrafficRenderer {
   constructor(scene, traffic, maxMoving = 90) {
     this.traffic = traffic;
     this.drawDistance = 330;
     this.detailDistance = 150;
+    this.lodDistance = 90;
     this.time = 0;
     const capacity = traffic.parked.length + maxMoving;
     this.capacity = capacity;
 
-    // Count vertices of every shape once (geometry is stored once per type).
-    const shapes = VEHICLE_TYPES.map((t) => getVehicleShape(t));
+    // Every shape (and the procedural LOD of model shapes) is stored once.
+    const shapes = [];
+    for (const t of VEHICLE_TYPES) {
+      const sh = getVehicleShape(t);
+      shapes.push(sh);
+      if (sh.lod) shapes.push(getProceduralShape(sh.lod));
+    }
     const verts = (g) => (g ? g.getAttribute('position').count : 0);
-    let vPaint = 0;
-    let vGlass = 0;
-    let vTrim = 0;
-    for (const s of shapes) {
-      vPaint += verts(s.geo.paint) + verts(s.geo.secondary);
-      vGlass += verts(s.geo.glass);
-      vTrim += verts(s.geo.trim);
+    const count = { paint: 0, glass: 0, trim: 0, chrome: 0 };
+    for (const sh of shapes) {
+      count.paint += verts(sh.geo.paint) + verts(sh.geo.secondary);
+      count.glass += verts(sh.geo.glass);
+      count.trim += verts(sh.geo.trim);
+      count.chrome += verts(sh.geo.chrome);
     }
 
-    const paintMat = new THREE.MeshPhysicalMaterial({ roughness: 0.42, metalness: 0.5, clearcoat: 1, clearcoatRoughness: 0.08 });
-    const glassMat = new THREE.MeshPhysicalMaterial({ color: 0x0c1218, roughness: 0.04, metalness: 0.2, envMapIntensity: 1.4 });
-    const trimMat = new THREE.MeshStandardMaterial({ color: 0x18191c, roughness: 0.6 });
-    this.paint = new THREE.BatchedMesh(capacity * 2, vPaint, undefined, paintMat);
-    this.glass = new THREE.BatchedMesh(capacity, vGlass, undefined, glassMat);
-    this.trim = new THREE.BatchedMesh(capacity, vTrim, undefined, trimMat);
-    this.materials = { paint: paintMat, glass: glassMat };
+    const mats = {
+      paint: new THREE.MeshPhysicalMaterial({ roughness: 0.42, metalness: 0.5, clearcoat: 1, clearcoatRoughness: 0.08 }),
+      glass: new THREE.MeshPhysicalMaterial({ color: 0x0c1218, roughness: 0.04, metalness: 0.2, envMapIntensity: 1.4 }),
+      trim: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 }),
+      chrome: new THREE.MeshStandardMaterial({ color: 0xd8dce2, roughness: 0.15, metalness: 1 }),
+    };
+    this.paint = new THREE.BatchedMesh(capacity * 2, count.paint, undefined, mats.paint);
+    this.glass = new THREE.BatchedMesh(capacity, count.glass, undefined, mats.glass);
+    this.trim = new THREE.BatchedMesh(capacity, count.trim, undefined, mats.trim);
+    this.chrome = new THREE.BatchedMesh(capacity, Math.max(count.chrome, 3), undefined, mats.chrome);
+    this.materials = mats;
     this.geoIds = {};
-    for (const s of shapes) {
-      this.geoIds[s.type] = {
-        paint: this.paint.addGeometry(s.geo.paint),
-        sec: s.geo.secondary ? this.paint.addGeometry(s.geo.secondary) : -1,
-        glass: this.glass.addGeometry(s.geo.glass),
-        trim: this.trim.addGeometry(s.geo.trim),
+    for (const sh of shapes) {
+      if (this.geoIds[sh.type]) continue;
+      this.geoIds[sh.type] = {
+        paint: this.paint.addGeometry(sh.geo.paint),
+        sec: sh.geo.secondary ? this.paint.addGeometry(sh.geo.secondary) : -1,
+        glass: this.glass.addGeometry(sh.geo.glass),
+        trim: this.trim.addGeometry(sh.geo.trim),
+        chrome: sh.geo.chrome ? this.chrome.addGeometry(sh.geo.chrome) : -1,
       };
     }
-    for (const b of [this.paint, this.glass, this.trim]) {
+    for (const b of [this.paint, this.glass, this.trim, this.chrome]) {
       b.sortObjects = false; // opaque: sorting costs more CPU than it saves
       b.castShadow = true;
       b.receiveShadow = true;
@@ -58,7 +72,8 @@ export class TrafficRenderer {
 
     // Detail meshes (rewritten every frame, counts vary).
     const u = getUnitGeometries();
-    this.tyres = new THREE.InstancedMesh(u.wheel, new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 }), capacity * 4);
+    this.tyres = new THREE.InstancedMesh(u.wheel, new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.92 }), capacity * 4);
+    this.rims = new THREE.InstancedMesh(u.rim, mats.chrome, capacity * 4);
     // Lamps are unlit so their instance colour reads as brightness.
     this.lamps = new THREE.InstancedMesh(u.lamp, new THREE.MeshBasicMaterial(), capacity * 8);
     this.poolMat = new THREE.MeshBasicMaterial({
@@ -69,7 +84,7 @@ export class TrafficRenderer {
     this.pools = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), this.poolMat, maxMoving);
     this.pools.renderOrder = 2;
     this.lamps.setColorAt(0, new THREE.Color());
-    for (const m of [this.tyres, this.lamps, this.pools]) {
+    for (const m of [this.tyres, this.rims, this.lamps, this.pools]) {
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       m.frustumCulled = false; // instances span the whole city
       m.count = 0;
@@ -84,6 +99,7 @@ export class TrafficRenderer {
     this._p = new THREE.Vector3();
     this._s = new THREE.Vector3(1, 1, 1);
     this._up = new THREE.Vector3(0, 1, 0);
+    this._flip = new THREE.Matrix4().makeRotationY(Math.PI);
     this._c = new THREE.Color();
 
     for (const v of traffic.parked) this.add(v);
@@ -99,7 +115,11 @@ export class TrafficRenderer {
       sec: g.sec >= 0 ? this.paint.addInstance(g.sec) : -1,
       glass: this.glass.addInstance(g.glass),
       trim: this.trim.addInstance(g.trim),
+      chrome: g.chrome >= 0 ? this.chrome.addInstance(g.chrome) : -1,
       visible: true,
+      far: false,
+      near: g,
+      lod: v.shape.lod ? this.geoIds[`proc:${v.shape.lod}`] : null,
     };
     this.paint.setColorAt(r.paint, this._c.set(v.color));
     if (r.sec >= 0) this.paint.setColorAt(r.sec, this._c.set(SECONDARY_COLOR[v.shape.type] ?? 0xe8e8e4));
@@ -114,6 +134,7 @@ export class TrafficRenderer {
     if (r.sec >= 0) this.paint.deleteInstance(r.sec);
     this.glass.deleteInstance(r.glass);
     this.trim.deleteInstance(r.trim);
+    if (r.chrome >= 0) this.chrome.deleteInstance(r.chrome);
     v.render = null;
   }
 
@@ -126,6 +147,7 @@ export class TrafficRenderer {
     if (r.sec >= 0) this.paint.setMatrixAt(r.sec, m);
     this.glass.setMatrixAt(r.glass, m);
     this.trim.setMatrixAt(r.trim, m);
+    if (r.chrome >= 0) this.chrome.setMatrixAt(r.chrome, m);
   }
 
   _setVisible(v, visible) {
@@ -136,6 +158,19 @@ export class TrafficRenderer {
     if (r.sec >= 0) this.paint.setVisibleAt(r.sec, visible);
     this.glass.setVisibleAt(r.glass, visible);
     this.trim.setVisibleAt(r.trim, visible);
+    if (r.chrome >= 0) this.chrome.setVisibleAt(r.chrome, visible && !r.far);
+  }
+
+  /** Swap a model vehicle between its detailed and low-poly geometry. */
+  _setLod(v, far) {
+    const r = v.render;
+    if (!r.lod || r.far === far) return;
+    r.far = far;
+    const g = far ? r.lod : r.near;
+    this.paint.setGeometryIdAt(r.paint, g.paint);
+    this.glass.setGeometryIdAt(r.glass, g.glass);
+    this.trim.setGeometryIdAt(r.trim, g.trim);
+    if (r.chrome >= 0) this.chrome.setVisibleAt(r.chrome, !far && r.visible);
   }
 
   /** night: 0..1, eye: camera position (for distance culling / LOD). */
@@ -143,6 +178,7 @@ export class TrafficRenderer {
     this.time += dt;
     const draw2 = this.drawDistance * this.drawDistance;
     const detail2 = this.detailDistance * this.detailDistance;
+    const lod2 = this.lodDistance * this.lodDistance;
     this._tyreCount = 0;
     this._lampCount = 0;
     let pools = 0;
@@ -159,6 +195,7 @@ export class TrafficRenderer {
         const d2 = dx * dx + dz * dz;
         this._setVisible(v, d2 < draw2);
         if (d2 >= draw2) continue;
+        this._setLod(v, d2 > lod2);
         if (moving) this._setBody(v);
         else {
           this._q.setFromAxisAngle(this._up, v.heading);
@@ -174,9 +211,11 @@ export class TrafficRenderer {
     }
 
     this.tyres.count = this._tyreCount;
+    this.rims.count = this._tyreCount;
     this.lamps.count = this._lampCount;
     this.pools.count = pools;
     this.tyres.instanceMatrix.needsUpdate = true;
+    this.rims.instanceMatrix.needsUpdate = true;
     this.lamps.instanceMatrix.needsUpdate = true;
     this.lamps.instanceColor.needsUpdate = true;
     this.pools.instanceMatrix.needsUpdate = true;
@@ -189,11 +228,16 @@ export class TrafficRenderer {
     const car = this._car;
     const local = this._local;
     const out = this._out;
-    const s = v.shape;
+    const s = v.render.far ? getProceduralShape(v.shape.lod) : v.shape;
     const r = s.wheelRadius;
     for (const [wx, wz] of s.wheels) {
-      local.makeRotationX(v.wheelSpin).scale(this._s.set(s.wheelWidth, r, r)).setPosition(wx, r, wz);
-      this.tyres.setMatrixAt(this._tyreCount++, out.multiplyMatrices(car, local));
+      local.makeRotationX(v.wheelSpin).scale(this._s.set(s.wheelWidth, r, r));
+      // Right-hand wheels face outward the other way.
+      if (wx < 0) local.premultiply(this._flip);
+      local.setPosition(wx, r, wz);
+      out.multiplyMatrices(car, local);
+      this.tyres.setMatrixAt(this._tyreCount, out);
+      this.rims.setMatrixAt(this._tyreCount++, out);
     }
     const c = this._c;
     const L = s.lamps;
