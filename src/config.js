@@ -134,10 +134,11 @@ export const CONFIG = {
     colors: [0xd23a3a, 0x2f6fd6, 0xf2f2f2, 0x222428, 0xf0c419, 0x3aa856, 0x8a8f99, 0xe07b2a, 0x5b3fa8],
     // AI vehicle mix. speed in km/h; accel / decel = IDM comfortable rates (m/s^2).
     types: {
-      car: { weight: 44, shapes: ['sedan', 'hatchback', 'suv', 'pickup', 'sports'], speed: [34, 52], accel: 2.6, decel: 4 },
+      car: { weight: 44, shapes: ['sedan', 'hatchback', 'suv', 'pickup', 'sports', 'van', 'suv-luxury', 'sedan', 'hatchback'], speed: [34, 52], accel: 2.6, decel: 4 },
+      police: { weight: 2, shapes: ['police'], colors: [0xf2f2f2], speed: [40, 56], accel: 3, decel: 4.5 },
       taxi: { weight: 10, shapes: ['taxi'], colors: [0xf2c419], speed: [36, 52], accel: 2.6, decel: 4 },
       bus: { weight: 6, shapes: ['bus'], colors: [0x2f6fd6, 0xd23a3a, 0x3aa856, 0xe8e8e4], speed: [28, 40], accel: 1.2, decel: 3 },
-      truck: { weight: 8, shapes: ['truck'], colors: [0xd23a3a, 0x2f6fd6, 0xf2f2f2, 0x3aa856], speed: [30, 44], accel: 1.3, decel: 3 },
+      truck: { weight: 8, shapes: ['delivery', 'truck-flat', 'garbage-truck', 'truck', 'ambulance'], colors: [0xd23a3a, 0x2f6fd6, 0xf2f2f2, 0x3aa856], speed: [30, 44], accel: 1.3, decel: 3 },
       motorbike: { weight: 14, shapes: ['motorbike'], speed: [40, 58], accel: 3.6, decel: 5.5 },
       tuktuk: { weight: 18, shapes: ['tuktuk'], colors: [0x2e8b57, 0xf2c419, 0x8b1e2d, 0x1f5fbf, 0x222428], speed: [26, 40], accel: 1.8, decel: 3.5 },
     },
@@ -186,20 +187,33 @@ export const CONFIG = {
 
   /**
    * Graphics presets (Settings → Graphics). drawDistance drives the fog,
-   * vehicle / pedestrian culling and the traffic spawn ring.
+   * vehicle / pedestrian culling and the traffic spawn ring; `post` selects
+   * the post-processing effects (see core/post.js).
    */
   quality: {
     low: {
-      shadows: false, shadowMapSize: 1024, pixelRatio: 1, headlightShadow: false,
+      shadows: false, shadowMapSize: 1024, shadowArea: 50, pixelRatio: 1, renderScale: 0.8, headlightShadow: false,
+      headlights: 'decal', ibl: 'cars', characters: 0, foliage: false,
       pedestrians: 50, trafficScale: 0.7, drawDistance: 300, pedDrawDistance: 80,
+      post: { enabled: false },
     },
     medium: {
-      shadows: true, shadowMapSize: 2048, pixelRatio: 1.5, headlightShadow: false,
+      shadows: true, shadowMapSize: 2048, shadowArea: 60, shadowRate: 2, pixelRatio: 1, renderScale: 0.85, headlightShadow: false,
+      headlights: 'decal', ibl: 'cars', characters: 12,
       pedestrians: 110, trafficScale: 1, drawDistance: 420, pedDrawDistance: 120,
+      post: { enabled: true, aa: 'fxaa', ao: 'off', bloom: true, speedBlur: false, flare: false, grain: true },
     },
     high: {
-      shadows: true, shadowMapSize: 4096, pixelRatio: 2, headlightShadow: true,
-      pedestrians: 180, trafficScale: 1.3, drawDistance: 560, pedDrawDistance: 160,
+      shadows: true, shadowMapSize: 4096, shadowArea: 80, pixelRatio: 1.5, headlightShadow: false,
+      headlights: 'one', ibl: 'full', characters: 24,
+      pedestrians: 160, trafficScale: 1.2, drawDistance: 520, pedDrawDistance: 150,
+      post: { enabled: true, aa: 'smaa', ao: 'half', bloom: true, speedBlur: true, flare: false, grain: true },
+    },
+    ultra: {
+      shadows: true, shadowMapSize: 4096, shadowArea: 100, pixelRatio: 2, headlightShadow: true,
+      headlights: 'two', ibl: 'full', characters: 40,
+      pedestrians: 220, trafficScale: 1.4, drawDistance: 620, pedDrawDistance: 180,
+      post: { enabled: true, aa: 'smaa', ao: 'full', bloom: true, speedBlur: true, flare: true, grain: true },
     },
   },
 

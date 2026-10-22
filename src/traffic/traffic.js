@@ -148,7 +148,7 @@ export class Traffic {
     const L = this.layout;
     const rng = createRng(CONFIG.city.seed + 31);
     const hr = this.halfRoad;
-    const shapes = ['sedan', 'hatchback', 'suv', 'pickup', 'taxi', 'tuktuk', 'sedan', 'hatchback'];
+    const shapes = ['sedan', 'hatchback', 'suv', 'pickup', 'taxi', 'tuktuk', 'sedan', 'hatchback', 'van', 'suv-luxury'];
     const { blocksX, blocksZ } = L.cfg;
 
     // Each road segment, each kerb. alongZ: road at x = roadX[i] between roadZ[j], roadZ[j+1].

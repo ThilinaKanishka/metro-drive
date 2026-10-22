@@ -3,7 +3,7 @@ import { CONFIG } from '../config.js';
 
 /** Creates the WebGL renderer and keeps it sized to the window. */
 export function createRenderer(container) {
-  const pixelRatio = Math.min(window.devicePixelRatio || 1, CONFIG.render.maxPixelRatio);
+  const pixelRatio = effectivePixelRatio();
   const renderer = new THREE.WebGLRenderer({
     antialias: CONFIG.render.antialias && pixelRatio < 2, // MSAA is wasted on hi-dpi screens
     powerPreference: 'high-performance',
@@ -24,7 +24,7 @@ export function handleResize(renderer, camera, onResize) {
   const resize = () => {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, CONFIG.render.maxPixelRatio));
+    renderer.setPixelRatio(effectivePixelRatio());
     renderer.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -33,4 +33,14 @@ export function handleResize(renderer, camera, onResize) {
   window.addEventListener('resize', resize);
   resize();
   return resize;
+}
+
+/**
+ * Device pixel ratio, capped by the quality preset, times the render scale
+ * (< 1 renders fewer pixels and lets the browser upscale: the biggest lever
+ * on fill-rate-bound integrated GPUs; Auto quality adjusts it dynamically).
+ */
+export function effectivePixelRatio() {
+  const r = CONFIG.render;
+  return Math.min(window.devicePixelRatio || 1, r.maxPixelRatio) * (r.renderScale ?? 1);
 }

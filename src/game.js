@@ -6,6 +6,8 @@ import { Loop } from './core/loop.js';
 import { Input } from './core/input.js';
 import { CameraRig } from './core/cameraRig.js';
 import { City } from './world/city.js';
+import { facadeUniforms } from './world/buildings.js';
+import { windUniforms } from './world/trees.js';
 import { DayNight } from './world/dayNight.js';
 import { Car } from './vehicle/car.js';
 import { SkidMarks } from './vehicle/skidMarks.js';
@@ -14,6 +16,8 @@ import { TrafficRenderer } from './traffic/trafficRenderer.js';
 import { TrafficLights } from './traffic/trafficLights.js';
 import { Pedestrians } from './people/pedestrians.js';
 import { PedestrianRenderer } from './people/pedestrianRenderer.js';
+import { CharacterLod } from './people/characterLod.js';
+import { assets } from './core/assets.js';
 import { carCircles } from './vehicle/collision.js';
 import { Score } from './gameplay/score.js';
 import { Missions, MODES } from './gameplay/missions.js';
@@ -21,7 +25,13 @@ import { Weather } from './world/weather.js';
 import { ReflectionEnvironment } from './world/environment.js';
 import { StreetProps } from './world/props.js';
 import { CityAudio } from './audio/cityAudio.js';
+import { Vegetation } from './world/vegetation.js';
+import { CityDetails } from './world/cityDetails.js';
+import { Effects } from './fx/effects.js';
+import { installHeightFog } from './world/heightFog.js';
 import { SettingsMenu } from './ui/settings.js';
+import { PostFX } from './core/post.js';
+import { AutoQuality } from './core/autoQuality.js';
 import { Hud } from './ui/hud.js';
 import { Minimap } from './ui/minimap.js';
 import { setupTouchControls } from './ui/touch.js';
@@ -39,6 +49,7 @@ import { loadPrefs, savePrefs } from './core/storage.js';
  */
 export class Game {
   constructor(container) {
+    installHeightFog();
     this.started = false;
     this.state = 'menu';
     this.prefs = loadPrefs();
@@ -64,9 +75,13 @@ export class Game {
     this.trafficRenderer = new TrafficRenderer(scene, this.traffic);
     this.traffic.onHonk = (v) => this._aiHonk(v);
     this.props = new StreetProps(scene, this.layout); // after parking, before pedestrians (idle spots)
+    this.vegetation = new Vegetation(scene, this.layout, this.city.trees);
+    this.details = new CityDetails(scene, this.layout);
+    this.effects = new Effects(scene, this.layout);
     this.peds = new Pedestrians(this.layout, this.lights);
     this.peds.populate(this.car.physics.x, this.car.physics.z);
     this.pedRenderer = new PedestrianRenderer(scene, this.peds);
+    this.characters = new CharacterLod(scene, this.peds, assets.models.characters ?? []);
     this.traffic.peds = this.peds.list;
     this.peds.onHit = (ped, speed) => this._pedestrianHit(ped, speed);
 
@@ -83,16 +98,18 @@ export class Game {
     // Weather + reflections (car paint / glass, wet roads).
     const roadMats = this.city.roads.userData.materials;
     this.weather = new Weather(scene, camera, roadMats);
-    this.env = new ReflectionEnvironment(this.renderer);
+    // Sky env map = scene.environment (IBL + reflections for every PBR
+    // material); wet roads get it explicitly so the weather can drive them.
+    this.env = new ReflectionEnvironment(this.renderer, scene, this.dayNight.skySystem);
     for (const m of Object.values(roadMats)) {
       m.userData.envManual = true;
-      this.env.add(m, m === roadMats.asphalt ? 0.9 : 0.5);
+      this.env.add(m);
     }
-    this.env.add(this.trafficRenderer.materials.paint, 0.8);
-    this.env.add(this.trafficRenderer.materials.glass, 1);
+    this.env.add(this.trafficRenderer.materials.paint);
+    this.env.add(this.trafficRenderer.materials.glass);
     this._carEnvMats = [];
-    this.car.onModelChange = (model) => this._registerCarEnv(model);
-    this._registerCarEnv(this.car.model);
+    this.car.onModelChange = (model) => this._onCarModel(model);
+    this._onCarModel(this.car.model);
     this.garage = new Garage(this.renderer, {
       onDrive: (id, color) => this._garageDrive(id, color),
       onBack: () => this._garageBack(),
@@ -112,19 +129,35 @@ export class Game {
     this._modeStarted = null;
     this.time = 0;
 
+    this.post = new PostFX(this.renderer, scene, camera);
+    this._sunGrid = this._buildHeightGrid();
+    this._sunVis = 1;
+
     this._bindActions();
-    this._resize = handleResize(this.renderer, camera, () => this.garage.resize());
+    this._resize = handleResize(this.renderer, camera, (w, h) => {
+      this.garage.resize();
+      this.post.setSize(w, h);
+    });
 
     // Settings (persisted); touch devices default to Low graphics.
     const touch = window.matchMedia('(pointer: coarse)').matches;
     this.settings = {
-      quality: touch ? 'low' : 'medium',
+      quality: 'auto',
       volume: CONFIG.audio.masterVolume,
       density: this.prefs.density ?? CONFIG.traffic.defaultDensity,
       time: 'auto',
       weather: this.prefs.weather ?? CONFIG.weather.default,
       ...this.prefs.settings,
     };
+    this.auto = new AutoQuality({
+      start: touch ? 'low' : 'medium',
+      apply: (level) => this._applyQuality(level),
+      setScale: (scale) => {
+        CONFIG.render.renderScale = scale;
+        this._resize();
+      },
+      notify: (text) => this.hud.toast(text, 2),
+    });
     this.settingsMenu = new SettingsMenu({
       onChange: (patch) => this.applySettings(patch),
       onClose: () => this._closeSettings(),
@@ -135,10 +168,7 @@ export class Game {
     this.loop = new Loop({
       fixedUpdate: (dt) => this.fixedUpdate(dt),
       update: (dt, frameDt) => this.update(dt, frameDt),
-      render: () => {
-        if (this.state === 'garage') this.garage.render();
-        else this.renderer.render(scene, camera);
-      },
+      render: (frameDt) => this._render(frameDt),
     });
     this.loop.start();
   }
@@ -166,11 +196,83 @@ export class Game {
     this.cameraRig.snap();
   }
 
-  _registerCarEnv(model) {
+  /** A (new) player car model: reflections and headlight mode. */
+  _onCarModel(model) {
     for (const m of this._carEnvMats) this.env.remove(m);
     this._carEnvMats = model.reflective;
-    for (const m of this._carEnvMats) this.env.add(m, 1);
+    for (const m of this._carEnvMats) this.env.add(m);
+    model.setHeadlightMode(this.headlightMode ?? 'decal');
     model.setHeadlightShadow(!!this.headlightShadows);
+  }
+
+  /**
+   * Compile shaders for both headlight states (light count changes the
+   * programs) so turning the lights on at dusk doesn't stall.
+   */
+  _warmUpShaders() {
+    const m = this.car.model;
+    m.forceBeams(true);
+    this.renderer.compile(this.scene, this.camera);
+    m.forceBeams(false);
+    this.renderer.compile(this.scene, this.camera);
+  }
+
+  /** Draw the frame: garage scene, post-processing chain, or plain render (Low). */
+  _render(frameDt) {
+    const r = this.renderer;
+    if (this.state === 'garage') {
+      // The garage is lit for direct ACES output.
+      const tm = r.toneMapping;
+      const ex = r.toneMappingExposure;
+      r.toneMapping = THREE.ACESFilmicToneMapping;
+      r.toneMappingExposure = 1;
+      r.shadowMap.needsUpdate = true; // (Medium only refreshes shadows every other frame)
+      this.garage.render();
+      r.toneMapping = tm;
+      r.toneMappingExposure = ex;
+    } else if (this.post.enabled) {
+      this.post.render(frameDt);
+    } else {
+      r.render(this.scene, this.camera);
+    }
+  }
+
+  /** Coarse max-building-height grid (4 m cells) for cheap sun occlusion rays. */
+  _buildHeightGrid() {
+    const L = this.layout;
+    const cell = 4;
+    const nx = Math.ceil(L.extentX / cell);
+    const nz = Math.ceil(L.extentZ / cell);
+    const h = new Float32Array(nx * nz);
+    for (const b of L.buildings) {
+      const top = b.y + b.h;
+      const x0 = Math.max(0, Math.floor((b.x - b.w / 2 + L.halfX) / cell));
+      const x1 = Math.min(nx - 1, Math.floor((b.x + b.w / 2 + L.halfX) / cell));
+      const z0 = Math.max(0, Math.floor((b.z - b.d / 2 + L.halfZ) / cell));
+      const z1 = Math.min(nz - 1, Math.floor((b.z + b.d / 2 + L.halfZ) / cell));
+      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) h[z * nx + x] = Math.max(h[z * nx + x], top);
+    }
+    return { cell, nx, nz, h };
+  }
+
+  /** Is the sun hidden behind a building from the camera? (ray march over the height grid) */
+  _sunVisibility() {
+    const g = this._sunGrid;
+    const L = this.layout;
+    const s = this.dayNight.sunDir;
+    if (!s || s.y <= 0) return 0;
+    const c = this.camera.position;
+    for (let d = 3; d < 400; d += 3) {
+      const x = c.x + s.x * d;
+      const y = c.y + s.y * d;
+      const z = c.z + s.z * d;
+      if (y > 75) return 1;
+      const ix = Math.floor((x + L.halfX) / g.cell);
+      const iz = Math.floor((z + L.halfZ) / g.cell);
+      if (ix < 0 || iz < 0 || ix >= g.nx || iz >= g.nz) return 1;
+      if (g.h[iz * g.nx + ix] > y) return 0;
+    }
+    return 1;
   }
 
   /** Main menu mode selector. */
@@ -327,27 +429,10 @@ export class Game {
     const changed = (k) => initial || prev[k] !== st[k];
 
     if (changed('quality')) {
-      const q = CONFIG.quality[st.quality] || CONFIG.quality.medium;
-      CONFIG.render.maxPixelRatio = q.pixelRatio;
-      CONFIG.render.fogFar = q.drawDistance;
-      this._resize();
-      if (this.renderer.shadowMap.enabled !== q.shadows) {
-        this.renderer.shadowMap.enabled = q.shadows;
-        // Shadow on/off changes shader programs: recompile everything once.
-        this.scene.traverse((o) => {
-          if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true;
-        });
-      }
-      this.dayNight.setShadowMapSize(q.shadowMapSize);
-      this.trafficRenderer.drawDistance = q.drawDistance * 0.8;
-      this.trafficRenderer.detailDistance = q.drawDistance * 0.35;
-      this.traffic.countScale = q.trafficScale;
-      this.traffic.radiusScale = q.drawDistance / 420;
-      this.peds.setCount(q.pedestrians);
-      this.peds.cfg.drawDistance = q.pedDrawDistance;
-      this.peds.cfg.animDistance = q.pedDrawDistance * 0.5;
-      this.headlightShadows = q.headlightShadow;
-      this.car.model.setHeadlightShadow(q.headlightShadow);
+      // Auto: start from a preset and let AutoQuality adapt while driving.
+      this.auto.enabled = st.quality === 'auto';
+      if (this.auto.enabled) this.auto.level = this.auto.start;
+      this._applyQuality(this.auto.enabled ? this.auto.level : st.quality);
     }
     if (changed('volume')) this.audio.setVolume(st.volume);
     if (changed('density')) {
@@ -365,6 +450,46 @@ export class Game {
       this.weather.set(st.weather);
       if (initial) this.weather.snap();
     }
+  }
+
+  /** Apply a graphics preset (also used by Auto quality to step up / down). */
+  _applyQuality(level) {
+    const q = CONFIG.quality[level] || CONFIG.quality.medium;
+    CONFIG.render.maxPixelRatio = q.pixelRatio;
+    CONFIG.render.renderScale = q.renderScale ?? 1;
+    CONFIG.render.fogFar = q.drawDistance;
+    this._resize();
+    if (this.renderer.shadowMap.enabled !== q.shadows) {
+      this.renderer.shadowMap.enabled = q.shadows;
+      // Shadow on/off changes shader programs: recompile everything once.
+      this.scene.traverse((o) => {
+        if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true;
+      });
+    }
+    this.dayNight.setShadowMapSize(q.shadowMapSize, q.shadowArea);
+    // Medium re-renders the sun's shadow map every other frame.
+    this.shadowRate = q.shadowRate ?? 1;
+    this.renderer.shadowMap.autoUpdate = this.shadowRate === 1;
+    this.renderer.shadowMap.needsUpdate = true;
+    this.trafficRenderer.drawDistance = q.drawDistance * 0.8;
+    this.trafficRenderer.detailDistance = q.drawDistance * 0.35;
+    this.traffic.countScale = q.trafficScale;
+    this.traffic.radiusScale = q.drawDistance / 420;
+    this.peds.setCount(q.pedestrians);
+    this.peds.cfg.drawDistance = q.pedDrawDistance;
+    this.peds.cfg.animDistance = q.pedDrawDistance * 0.5;
+    this.vegetation.setFoliage(q.foliage !== false);
+    this.characters.maxNear = q.characters ?? 0;
+    if (!this.characters.maxNear) this.characters.clear();
+    this.headlightShadows = q.headlightShadow;
+    this.headlightMode = q.headlights;
+    this.car.model.setHeadlightMode(q.headlights);
+    this.car.model.setHeadlightShadow(q.headlightShadow);
+    this.env.setMode(q.ibl);
+    this.dayNight.fullIbl = q.ibl === 'full';
+    this.post.configure(q.post);
+    this._warmUpShaders();
+    this.auto.reset(q.renderScale ?? 1);
   }
 
   /** Settings screen from the main menu ('menu') or the pause menu ('pause'). */
@@ -467,6 +592,7 @@ export class Game {
     if (impact > 1.5) {
       this.audio.impact(impact);
       this.cameraRig.addShake(Math.min(impact / 15, 0.8));
+      if (impact > 5 && car.impactPoint) this.effects.impact(car.impactPoint.x, car.impactPoint.z, impact);
       if (this.state === 'playing' && car.applyCrash(impact) > 0.05) {
         this.score.add(-CONFIG.missions.crashPenalty, 'Crash');
         this.missions.onCrash();
@@ -478,23 +604,40 @@ export class Game {
     // Headlights on at night and in rain / fog.
     const headlights = Math.max(THREE.MathUtils.smoothstep(night, 0.3, 0.6), this.weather.gloom);
     car.syncVisual(dt, headlights);
-    if (dt > 0) this.skidMarks.update(p);
+    if (dt > 0) this.skidMarks.update(p, dt);
     this.cameraRig.update(dt);
     this.dayNight.update(dt, car.position, this.camera);
     this.weather.update(dt, this.dayNight);
-    this.env.update(this.dayNight.skyUniforms.topColor.value, this.dayNight.skyUniforms.horizonColor.value, night);
-    this.city.update(night);
+    this.env.wet = this.weather.wet;
+    this.env.update(this.dayNight.sunDir, night, this.weather.overcast ?? 0);
+    this.city.update(night, this.camera.position);
+    windUniforms.uTime.value += dt;
+    windUniforms.uWind.value = 0.3 + this.weather.rain * 0.5;
+    this._frame = (this._frame ?? 0) + 1;
+    if (this.shadowRate > 1 && this._frame % this.shadowRate === 0) this.renderer.shadowMap.needsUpdate = true;
+    facadeUniforms.uSkyColor.value.copy(this.dayNight.skyUniforms.horizonColor.value);
     this.props.update(night);
+    this.vegetation.update(this.camera.position);
+    this.details.update(dt, night, this.camera.position, this.scene.fog.color);
+    if (this.post.enabled) {
+      if (this.post.opts.flare) this._sunVis += (this._sunVisibility() - this._sunVis) * Math.min(1, frameDt * 8);
+      const top = Math.max(car.cfg.topSpeedKmh, 120) / 3.6;
+      this.post.update(p.speed / top, this.dayNight.exposure, this.dayNight.sunDir, night, this._sunVis);
+    }
     this.trafficRenderer.update(night, this.camera.position, dt);
     this.peds.update(dt, pl, this.camera.position, night);
+    this.characters.update(dt);
     this.pedRenderer.update(dt, this.camera);
     car.damage.update(dt, car, this.renderer.domElement.clientHeight);
+    this.effects.update(dt, car, this.weather.rain, this.camera.position, this.renderer.domElement.clientHeight);
+    car.model.windshield.update(dt, this.weather.rain);
     this.time += dt;
     if (this.state === 'playing') {
       this.missions.update(dt, p.speed, this.time);
       this.score.updateDrift(dt, p);
     }
 
+    if (this.state === 'playing') this.auto.update(frameDt);
     if (this.state === 'playing' || this.state === 'paused') {
       this.hud.update(frameDt, {
         redline: car.cfg.redlineRpm,

@@ -1,12 +1,27 @@
 import './style.css';
 import { Game } from './game.js';
+import { loadTextures, manager, assets } from './core/assets.js';
+import { loadModels } from './core/models.js';
 
 // Entry point: build the game (world, car, traffic...) behind the main menu.
 // Play / Garage both lead through the garage; "Drive" there starts the game
 // (a user gesture, so audio can begin).
-const game = new Game(document.getElementById('app'));
 const startBtn = document.getElementById('start-btn');
 const startScreen = document.getElementById('start');
+// Loading screen: textures and glTF models share one LoadingManager.
+const bar = document.getElementById('loading-bar');
+const text = document.getElementById('loading-text');
+manager.onProgress = (url, loaded, total) => {
+  const pct = Math.round((loaded / Math.max(total, 1)) * 100);
+  bar.style.width = `${pct}%`;
+  text.textContent = `Loading assets… ${pct}%`;
+};
+await Promise.all([loadTextures(), loadModels()]);
+if (assets.failed.length) console.warn('Assets that failed to load (procedural fallbacks used):', assets.failed);
+text.textContent = 'Building the city…';
+await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+const game = new Game(document.getElementById('app'));
+document.getElementById('loading').classList.add('hidden');
 
 startBtn.disabled = false;
 startBtn.textContent = 'Play';

@@ -1,68 +1,72 @@
 import * as THREE from 'three';
+import { Sky } from 'three/addons/objects/Sky.js';
 
 /**
- * Reflection environment for cars and wet roads. A tiny scene (sky gradient
- * dome, dark ground and a ring of skyline boxes) is pre-filtered with PMREM
- * into an env map. It is re-rendered only when the sky changes noticeably
- * (time of day / weather), so the cost is a few ms every several seconds.
+ * Image-based lighting and reflections. A small scene (a copy of the current
+ * physically based sky with its clouds, a dark ground and a ring of skyline
+ * boxes) is pre-filtered with PMREM into an HDR env map that becomes
+ * `scene.environment`: every PBR material gets sky-coloured ambient light and
+ * reflections (car paint, glass, chrome, glass towers, wet roads).
  *
- * The env map is assigned to selected materials only (car paint and glass,
- * wet asphalt): putting it on scene.environment would relight every material
- * in the city and change its look.
+ * The map is re-rendered only when the sun has moved or the weather changed
+ * noticeably (a couple of ms every few seconds of the day cycle).
+ *
+ * Modes (quality preset):
+ *  - 'full': scene.environment = env map, IBL on every PBR material
+ *  - 'cars': only registered materials (car paint / glass / chrome, and the
+ *    roads while they are wet) get the env map; big surfaces use the cheaper
+ *    hemisphere light. Image-based lighting is costly per pixel on
+ *    integrated GPUs, and cars / wet roads are where reflections matter.
+ * Registered materials get the env map assigned explicitly so their
+ * `envMapIntensity` takes effect (wet roads drive theirs from the weather).
  */
 export class ReflectionEnvironment {
-  constructor(renderer) {
+  constructor(renderer, scene, skySystem) {
     this.renderer = renderer;
+    this.scene = scene;
+    this.skySystem = skySystem;
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.materials = new Set();
     this.texture = null;
     this._target = null;
     this._key = '';
     this.intensity = 1;
+    this.mode = 'full';
+    this.wet = 0;
 
-    const scene = new THREE.Scene();
-    this.uniforms = {
-      top: { value: new THREE.Color() },
-      horizon: { value: new THREE.Color() },
-      ground: { value: new THREE.Color(0x25272b) },
-    };
-    const sky = new THREE.Mesh(
-      new THREE.SphereGeometry(50, 24, 12),
-      new THREE.ShaderMaterial({
-        side: THREE.BackSide,
-        uniforms: this.uniforms,
-        vertexShader: /* glsl */ `
-          varying vec3 vDir;
-          void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-        fragmentShader: /* glsl */ `
-          uniform vec3 top; uniform vec3 horizon; uniform vec3 ground;
-          varying vec3 vDir;
-          void main() {
-            float h = vDir.y;
-            vec3 c = h > 0.0 ? mix(horizon, top, pow(h, 0.6)) : mix(horizon, ground, smoothstep(0.0, 0.15, -h));
-            gl_FragColor = vec4(c, 1.0);
-          }`,
-      }),
-    );
-    scene.add(sky);
+    const env = new THREE.Scene();
+    this.sky = new Sky();
+    this.sky.scale.setScalar(40);
+    env.add(this.sky);
+    // Ground: dark asphalt-ish below the horizon.
+    this.groundMat = new THREE.MeshBasicMaterial({ color: 0x1d1f23, side: THREE.DoubleSide });
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(38, 32).rotateX(-Math.PI / 2), this.groundMat);
+    ground.position.y = -1.5;
+    env.add(ground);
     // Skyline: dark boxes around the horizon break up the reflections.
     this.boxMat = new THREE.MeshBasicMaterial({ color: 0x3a3f48 });
     const box = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
     for (let k = 0; k < 28; k++) {
       const a = (k / 28) * Math.PI * 2;
-      const h = 4 + ((k * 37) % 11);
+      const h = 3 + ((k * 37) % 9);
       const m = new THREE.Mesh(box, this.boxMat);
-      m.position.set(Math.sin(a) * 30, -2, Math.cos(a) * 30);
+      m.position.set(Math.sin(a) * 26, -1.5, Math.cos(a) * 26);
       m.scale.set(5 + (k % 3) * 2, h, 5);
-      m.lookAt(0, -2, 0);
-      scene.add(m);
+      m.lookAt(0, -1.5, 0);
+      env.add(m);
     }
-    this.scene = scene;
+    this.envScene = env;
   }
 
-  /** Register a material to receive the env map. */
-  add(material, strength = 1) {
-    material.userData.envStrength = strength;
+  setMode(mode) {
+    this.mode = mode;
+    this.scene.environment = mode === 'full' ? this.texture : null;
+  }
+
+  /** Register a material whose envMap / intensity are managed explicitly. */
+  add(material) {
+    // Remember any per-material boost (e.g. glass) relative to the global level.
+    material.userData.envBoost ??= material.envMapIntensity;
     this.materials.add(material);
     if (this.texture) this._apply(material);
   }
@@ -72,32 +76,37 @@ export class ReflectionEnvironment {
   }
 
   _apply(m) {
-    if (m.envMap !== this.texture) {
-      m.envMap = this.texture;
+    // In 'cars' mode the (large) road surfaces only reflect while wet.
+    const tex = this.mode === 'cars' && m.userData.envManual && this.wet < 0.05 ? null : this.texture;
+    if (m.envMap !== tex) {
+      m.envMap = tex;
       m.needsUpdate = true;
     }
-    // Some materials (wet roads) drive their own intensity.
-    if (!m.userData.envManual) m.envMapIntensity = this.intensity * (m.userData.envStrength ?? 1);
+    if (!m.userData.envManual) m.envMapIntensity = this.intensity * m.userData.envBoost;
   }
 
-  /**
-   * Re-render if the sky changed enough. skyTop / skyHorizon: current sky
-   * colours, night 0..1 (dims reflections).
-   */
-  update(skyTop, skyHorizon, night) {
-    this.intensity = 1 - night * 0.75;
-    const q = (c) => `${Math.round(c.r * 20)},${Math.round(c.g * 20)},${Math.round(c.b * 20)}`;
-    const key = q(skyTop) + q(skyHorizon);
+  /** sunDir: normalised; night 0..1; overcast 0..1. */
+  update(sunDir, night, overcast = 0) {
+    const q = (v, n) => Math.round(v * n);
+    const key = `${q(sunDir.x, 12)},${q(sunDir.y, 30)},${q(sunDir.z, 12)},${q(overcast, 8)}`;
     if (key !== this._key) {
       this._key = key;
-      this.uniforms.top.value.copy(skyTop);
-      this.uniforms.horizon.value.copy(skyHorizon);
-      this.boxMat.color.setRGB(0.23, 0.25, 0.28).multiplyScalar(1 - night * 0.8);
-      const target = this.pmrem.fromScene(this.scene, 0.03);
+      this.skySystem.copyTo(this.sky);
+      // The direct sun light already makes the highlight; a sun disc in the
+      // env map would add a second, blown-out one on every glossy surface.
+      this.sky.material.uniforms.showSunDisc.value = 0;
+      const dark = 1 - night * 0.85;
+      this.boxMat.color.setRGB(0.05, 0.055, 0.065).multiplyScalar(dark);
+      this.groundMat.color.setRGB(0.035, 0.037, 0.042).multiplyScalar(dark);
+      const target = this.pmrem.fromScene(this.envScene, 0.02);
       this._target?.dispose();
       this._target = target;
       this.texture = target.texture;
+      if (this.mode === 'full') this.scene.environment = this.texture;
     }
+    // The sky render is already dark at night; keep a little moonlit ambient.
+    this.intensity = 0.42 * (1 - overcast * 0.25);
+    this.scene.environmentIntensity = this.intensity;
     for (const m of this.materials) this._apply(m);
   }
 }

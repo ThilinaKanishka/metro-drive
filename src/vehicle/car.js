@@ -137,7 +137,18 @@ export class Car {
     this.roll += (targetRoll - this.roll) * k;
     this.pitch += (targetPitch - this.pitch) * k;
     body.rotation.set(-this.pitch, 0, this.roll, 'YXZ');
-    body.position.y = 0.02 + Math.abs(this.roll) * 0.2;
+
+    // Suspension bounce: a damped vertical spring excited by road texture
+    // (grows with speed), by weight transfer changes and by crash impacts.
+    if (dt > 0) {
+      this._t = (this._t ?? 0) + dt;
+      const road = (Math.sin(this._t * 23.0 + p.x * 0.7) * Math.sin(this._t * 9.3 + p.z * 0.5)) * Math.min(p.speed / 30, 1);
+      const accel = (p.longAccel - (this._prevLong ?? p.longAccel)) * 0.02;
+      this._prevLong = p.longAccel;
+      this.bounceV = (this.bounceV ?? 0) + (-170 * (this.bounce ?? 0) - 11 * (this.bounceV ?? 0) + road * 2.2) * dt - accel;
+      this.bounce = clamp((this.bounce ?? 0) + this.bounceV * dt, -0.06, 0.06);
+    }
+    body.position.y = 0.02 + Math.abs(this.roll) * 0.2 + (this.bounce ?? 0);
 
     for (const w of wheels) {
       w.spinner.rotation.x = p.wheelSpin;
@@ -157,6 +168,7 @@ export class Car {
     const left = blink && (this.indicator === -1 || this.indicator === 2);
     const right = blink && (this.indicator === 1 || this.indicator === 2);
     this.model.setLights(headlights, p.braking, p.gear < 0, left, right);
+    this.model.updateDashboard(p.speedKmh, p.rpm / 1000, left, right, headlights);
   }
 
   /**
@@ -164,6 +176,7 @@ export class Car {
    * Returns how much damage was added (0 for light bumps).
    */
   applyCrash(impact) {
+    this.bounceV = (this.bounceV ?? 0) - Math.min(impact, 25) * 0.04;
     const p = this.physics;
     const pt = this.impactPoint;
     if (!pt) return 0;

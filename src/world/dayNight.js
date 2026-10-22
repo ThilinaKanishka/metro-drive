@@ -2,11 +2,16 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { worldUniforms } from './shared.js';
 import { smoothstep, lerp } from '../core/utils.js';
+import { SkySystem } from './sky.js';
 
 /**
- * Day/night cycle: moves the sun (or moon) light, recolours sky, fog and
+ * Day/night cycle: moves the sun (or moon) light, drives the physically based
+ * sky (sunrise / sunset colours, clouds, stars, moon), recolours fog and
  * ambient light, and publishes `night` (0..1) to everything else.
  * time: 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset.
+ *
+ * `skyUniforms.topColor / horizonColor` are an approximate palette of the
+ * sky (used for fog, background and by the weather), not shader uniforms.
  */
 export class DayNight {
   constructor(scene, renderer) {
@@ -34,11 +39,20 @@ export class DayNight {
     sh.radius = CONFIG.render.shadowRadius;
     scene.add(this.sun, this.sun.target);
 
-    this.hemi = new THREE.HemisphereLight(0xbfd8ff, 0x5a5444, 1.0);
+    // Fill light. Image-based lighting from the sky env map does most of the
+    // ambient work by day; the hemisphere light mostly carries the night.
+    this.hemi = new THREE.HemisphereLight(0xbfd8ff, 0x5a5444, 0.4);
     scene.add(this.hemi);
 
-    this.sky = this._createSky();
-    scene.add(this.sky);
+    this.skySystem = new SkySystem(scene, CONFIG.render.cameraFar * 0.85);
+    this.skyUniforms = {
+      topColor: { value: new THREE.Color(0x4f8fd8) },
+      horizonColor: { value: new THREE.Color(0xbfd8ee) },
+    };
+    this.shadowArea = CONFIG.render.shadowArea;
+    this.clock = 0;
+    this._fwd = new THREE.Vector3();
+    this._focus = new THREE.Vector3();
 
     this._sunDir = new THREE.Vector3();
     this._moonDir = new THREE.Vector3();
@@ -51,61 +65,12 @@ export class DayNight {
     this._tmp = new THREE.Color();
   }
 
-  _createSky() {
-    const geo = new THREE.SphereGeometry(CONFIG.render.cameraFar * 0.9, 32, 16);
-    this.skyUniforms = {
-      topColor: { value: new THREE.Color(0x4f8fd8) },
-      horizonColor: { value: new THREE.Color(0xbfd8ee) },
-      sunDir: { value: new THREE.Vector3(0, 1, 0) },
-      night: { value: 0 },
-    };
-    const mat = new THREE.ShaderMaterial({
-      uniforms: this.skyUniforms,
-      side: THREE.BackSide,
-      depthWrite: false,
-      fog: false,
-      vertexShader: /* glsl */ `
-        varying vec3 vDir;
-        void main() {
-          vDir = normalize(position);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }`,
-      fragmentShader: /* glsl */ `
-        uniform vec3 topColor;
-        uniform vec3 horizonColor;
-        uniform vec3 sunDir;
-        uniform float night;
-        varying vec3 vDir;
-        float hash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
-        void main() {
-          float h = max(vDir.y, 0.0);
-          vec3 col = mix(horizonColor, topColor, pow(h, 0.55));
-          // Sun disc + glow (moon at night uses the opposite direction).
-          vec3 sd = night > 0.5 ? -sunDir : sunDir;
-          float d = max(dot(normalize(vDir), normalize(sd)), 0.0);
-          vec3 glowCol = night > 0.5 ? vec3(0.55, 0.62, 0.8) : vec3(1.0, 0.85, 0.6);
-          col += glowCol * pow(d, 900.0) * 3.0;
-          col += glowCol * pow(d, 12.0) * 0.25 * (1.0 - night * 0.6);
-          // Stars.
-          vec3 cell = floor(vDir * 220.0);
-          float star = step(0.9975, hash(cell)) * smoothstep(0.05, 0.3, vDir.y);
-          col += vec3(star) * night * 0.9;
-          // Below horizon: fade to horizon colour (hidden by ground anyway).
-          col = mix(horizonColor, col, smoothstep(-0.05, 0.02, vDir.y));
-          gl_FragColor = vec4(col, 1.0);
-          #include <tonemapping_fragment>
-          #include <colorspace_fragment>
-        }`,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.frustumCulled = false;
-    mesh.renderOrder = -1;
-    return mesh;
-  }
-
   /** Quality setting: resize the sun's shadow map (re-allocated on next render). */
-  setShadowMapSize(size) {
+  setShadowMapSize(size, area = this.shadowArea) {
     const sh = this.sun.shadow;
+    this.shadowArea = area;
+    Object.assign(sh.camera, { left: -area, right: area, top: area, bottom: -area });
+    sh.camera.updateProjectionMatrix();
     if (sh.mapSize.x === size) return;
     sh.mapSize.set(size, size);
     sh.map?.dispose();
@@ -113,7 +78,7 @@ export class DayNight {
   }
 
   _snapToTexel(p, dir) {
-    const texel = (CONFIG.render.shadowArea * 2) / this.sun.shadow.mapSize.x;
+    const texel = (this.shadowArea * 2) / this.sun.shadow.mapSize.x;
     // Orthonormal basis perpendicular to the light direction.
     const u = this._u.crossVectors(this._worldUp, dir);
     if (u.lengthSq() < 1e-6) u.set(1, 0, 0);
@@ -141,6 +106,7 @@ export class DayNight {
 
   /** Called every frame. `focus` is the point the shadow camera should cover. */
   update(dt, focus, camera) {
+    this.clock += dt;
     if (this.transition) {
       const step = Math.min(this.transition.speed * dt, this.transition.remaining);
       this.time = (this.time + step) % 1;
@@ -171,8 +137,8 @@ export class DayNight {
 
     this.skyUniforms.topColor.value.copy(this._top);
     this.skyUniforms.horizonColor.value.copy(this._horizon);
-    this.skyUniforms.sunDir.value.copy(this._sunDir);
-    this.skyUniforms.night.value = this.night;
+    this.sunDir = this._sunDir;
+    if (camera) this.skySystem.update(this._sunDir, this.night, this.clock, camera.position);
     this.scene.fog.color.copy(this._horizon);
     this.scene.background.copy(this._horizon);
 
@@ -183,22 +149,32 @@ export class DayNight {
       this.sun.color.set(0x8fa6d8);
       this.sun.intensity = 0.35 * smoothstep(0.02, 0.25, -elev);
     } else {
-      this.sun.color.set(0xffffff).lerp(this._tmp.set(0xffb070), dawn * 0.8);
-      this.sun.intensity = 2.8 * smoothstep(-0.02, 0.2, elev);
+      // Low sun is warmer and dimmer (longer path through the atmosphere).
+      this.sun.color.set(0xfff6ea).lerp(this._tmp.set(0xff9a50), dawn * 0.85);
+      this.sun.intensity = 4.2 * smoothstep(-0.02, 0.25, elev);
     }
-    this.hemi.intensity = lerp(0.32, 1.05, day);
+    // Without full image-based lighting the hemisphere light carries the sky fill.
+    this.hemi.intensity = lerp(0.35, 0.3, day) * (this.fullIbl === false ? lerp(1.6, 5.0, day) : 1);
     this.hemi.color.copy(this._top).lerp(this._tmp.set(0xffffff), 0.4);
     this.hemi.groundColor.set(0x4a4438).lerp(this._tmp.set(0x10121a), this.night);
-    this.renderer.toneMappingExposure = lerp(1.15, 1.0, day);
+    this.exposure = lerp(0.95, 0.7, day);
+    this.renderer.toneMappingExposure = this.exposure;
 
-    // Shadow camera follows the focus point, snapped to whole shadow-map
+    // Shadow camera covers what the camera looks at: centred a little ahead
+    // of the car along the view direction, so nearby shadows stay sharp and
+    // the box isn't wasted behind the camera. Snapped to whole shadow-map
     // texels in light space so shadow edges don't shimmer while driving.
     if (focus) {
-      const snapped = this._snapToTexel(focus, lightDir);
+      const f = this._focus.copy(focus);
+      if (camera) {
+        camera.getWorldDirection(this._fwd);
+        this._fwd.y = 0;
+        if (this._fwd.lengthSq() > 1e-4) f.addScaledVector(this._fwd.normalize(), this.shadowArea * 0.4);
+      }
+      const snapped = this._snapToTexel(f, lightDir);
       this.sun.target.position.copy(snapped);
       this.sun.position.copy(snapped).addScaledVector(lightDir, 150);
       this.sun.target.updateMatrixWorld();
     }
-    if (camera) this.sky.position.copy(camera.position);
   }
 }
