@@ -23,6 +23,7 @@ export class CarPhysics {
     this.b = cfg.wheelBase - cfg.cgToFront;
     this.inertia = cfg.mass * (this.a * this.a + this.b * this.b) * 0.5 * cfg.inertiaScale;
     this.gripScale = 1;     // surface grip multiplier (wet roads < 1)
+    this.powerScale = 1;    // engine power multiplier (crash damage < 1)
     this.reset(0, 0, 0);
   }
 
@@ -129,7 +130,7 @@ export class CarPhysics {
     const torque = this._torqueAt(this.rpm);
     let driveForce = 0;
     if (this.shiftTimer === 0) {
-      driveForce = throttle * torque * ratio * c.finalDrive * c.drivetrainEfficiency / c.wheelRadius;
+      driveForce = throttle * torque * this.powerScale * ratio * c.finalDrive * c.drivetrainEfficiency / c.wheelRadius;
     }
     // Speed limiters.
     if (this.gear > 0 && vLong > c.topSpeedKmh * KMH) driveForce = 0;

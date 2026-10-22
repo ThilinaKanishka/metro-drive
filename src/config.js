@@ -164,6 +164,26 @@ export const CONFIG = {
     bottoms: [0x22262e, 0x2c3e66, 0x55463a, 0x7a7f87, 0x1d1d1d, 0x3f5d3a, 0xb8a98a],
   },
 
+  missions: {
+    taxi: {
+      minDistance: 180,        // straight-line distance to the destination (m)
+      maxDistance: 420,
+      speedAllowance: 8,       // timer = route length / this + baseTime
+      baseTime: 25,
+      baseFare: 25,            // $
+      farePerMetre: 0.12,
+      tipPerSecond: 1.5,       // tip for each second left on the clock
+    },
+    race: {
+      seed: 4242,              // fixed route so best times compare
+      checkpoints: 10,
+      radius: 10,              // pass within this distance of a checkpoint
+      parSpeed: 14,            // m/s average used for the par time / prize
+    },
+    crashPenalty: 25,          // score lost for a damaging crash
+    repairCostPerDamage: 300,  // $ for a full repair (R)
+  },
+
   trafficLights: {
     green: 12,                 // seconds per axis
     yellow: 3,

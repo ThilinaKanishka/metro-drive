@@ -106,7 +106,9 @@ export class PedestrianRenderer {
       this._part(this.hips, n, 0, 0.92, 0, 0, 0, 0);
       this._part(this.torso, n, 0, 1.27, 0.02 * lean, lean, 0, 0);
       this._part(this.arms, n * 2, 0.26, 1.5, 0.05 * lean, -swing * 0.9 + idleSway, 0, spread);
-      this._part(this.arms, n * 2 + 1, -0.26, 1.5, 0.05 * lean, swing * 0.9 - idleSway, 0, -spread);
+      // Taxi passengers hail with the right arm.
+      const rightArm = p.waving ? -2.7 + Math.sin(this.time * 7) * 0.25 : swing * 0.9 - idleSway;
+      this._part(this.arms, n * 2 + 1, -0.26, 1.5, 0.05 * lean, rightArm, 0, p.waving ? -0.25 : -spread);
       this._part(this.head, n, 0, 1.7, 0.06 * lean, 0, p.headYaw, 0);
       if (p.longHair) this._part(this.hair, n, 0, 1.56, -0.06 + 0.06 * lean, 0, p.headYaw, 0, 1, 2.8, 0.82);
       else this._part(this.hair, n, 0, 1.78, 0.06 * lean, 0, p.headYaw, 0, 1, 1, 1);

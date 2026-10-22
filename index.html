@@ -13,7 +13,28 @@
     <!-- HUD -->
     <div id="hud" class="hidden">
       <canvas id="minimap" width="200" height="200"></canvas>
+      <div id="score-panel">
+        <div id="hud-mode">FREE ROAM</div>
+        <div class="row"><span id="hud-score">0</span><small>pts</small></div>
+        <div id="hud-money">$0</div>
+      </div>
       <div id="fps" class="hidden">-- FPS</div>
+      <div id="mission" class="hidden">
+        <div id="mission-title"></div>
+        <div id="mission-text"></div>
+        <div id="mission-timer"></div>
+      </div>
+      <div id="waypoint" class="hidden">
+        <svg id="waypoint-arrow" viewBox="0 0 40 40" width="40" height="40"><path d="M20 3 L34 33 L20 25 L6 33 Z" /></svg>
+        <div id="waypoint-dist"></div>
+      </div>
+      <div id="countdown"></div>
+      <div id="popups"></div>
+      <div id="dash-extras">
+        <span id="ind-left" class="ind">◀</span>
+        <div id="damage"><span>DAMAGE</span><div class="bar"><i></i></div><em>R repair</em></div>
+        <span id="ind-right" class="ind">▶</span>
+      </div>
       <div id="status"></div>
       <div id="speedo">
         <canvas id="speedo-canvas" width="220" height="220"></canvas>
@@ -48,6 +69,11 @@
       <div class="panel">
         <h1>METRO<span>DRIVE</span></h1>
         <p class="tagline">A procedural low-poly city. Drive it.</p>
+        <div id="mode-select" class="mode-select">
+          <button data-mode="free">Free Roam</button>
+          <button data-mode="taxi">Taxi</button>
+          <button data-mode="race">Checkpoint Race</button>
+        </div>
         <div class="menu-buttons">
           <button id="start-btn" class="btn primary" disabled>Loading…</button>
           <button id="menu-garage" class="btn">Garage</button>

@@ -4,6 +4,7 @@ import { getVehicleShape } from './vehicleShapes.js';
 import { CarPhysics } from './carPhysics.js';
 import { DriverControls } from './controls.js';
 import { resolveCar } from './collision.js';
+import { Damage } from './damage.js';
 import { damp, clamp } from '../core/utils.js';
 
 /**
@@ -24,6 +25,7 @@ export class Car {
     this.blinkTime = 0;
     this._static = [];
     this.model = null;
+    this.damage = new Damage(scene);
     this.setVehicle(carId, color);
     this.spawn();
   }
@@ -47,6 +49,7 @@ export class Car {
     this.model?.dispose();
     this.model = createPlayerCar(cfg.shape, color);
     this.scene.add(this.model.root);
+    this.damage.attach(this.model);
     if (cockpit) this.setCockpit(true);
     this.onModelChange?.(this.model);
     this.syncVisual(0);
@@ -98,6 +101,7 @@ export class Car {
   fixedUpdate(dt, dynamicCircles, gripScale = 1) {
     this.controls.update(dt);
     this.physics.gripScale = gripScale;
+    this.physics.powerScale = this.damage.powerScale;
     this.physics.step(dt, this.controls);
     const statics = this.layout.collidersNear(this.physics.x, this.physics.z, this._static);
     const { impact, hitOwner, hitX, hitZ } = resolveCar(this.physics, statics, dynamicCircles);
@@ -147,6 +151,25 @@ export class Car {
     const left = blink && (this.indicator === -1 || this.indicator === 2);
     const right = blink && (this.indicator === 1 || this.indicator === 2);
     this.model.setLights(headlights, p.braking, p.gear < 0, left, right);
+  }
+
+  /**
+   * Turn a collision into body damage at the last contact point.
+   * Returns how much damage was added (0 for light bumps).
+   */
+  applyCrash(impact) {
+    const p = this.physics;
+    const pt = this.impactPoint;
+    if (!pt) return 0;
+    const dx = pt.x - p.x;
+    const dz = pt.z - p.z;
+    const s = Math.sin(p.heading);
+    const c = Math.cos(p.heading);
+    return this.damage.hit(impact, dx * c - dz * s, dx * s + dz * c);
+  }
+
+  repair() {
+    this.damage.repair();
   }
 
   /** Returns and clears the strongest impact since the last call. */

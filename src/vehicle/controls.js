@@ -13,12 +13,14 @@ export class DriverControls {
     this.steer = 0;
     this.handbrake = false;
     this.enabled = true;
+    this.locked = false;   // race countdown: hold the car on the brake
   }
 
   update(dt) {
-    const raw = this.enabled
+    let raw = this.enabled
       ? this.input.controls
       : { throttle: 0, brake: 0, steer: 0, handbrake: false };
+    if (this.locked) raw = { throttle: 0, brake: 0, steer: 0, handbrake: true };
     // Press quickly, release a bit faster (pedal ramps per second).
     this.throttle = approach(this.throttle, raw.throttle, (raw.throttle ? 4 : 8) * dt);
     this.brake = approach(this.brake, raw.brake, (raw.brake ? 6 : 10) * dt);

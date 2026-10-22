@@ -15,6 +15,8 @@ import { TrafficLights } from './traffic/trafficLights.js';
 import { Pedestrians } from './people/pedestrians.js';
 import { PedestrianRenderer } from './people/pedestrianRenderer.js';
 import { carCircles } from './vehicle/collision.js';
+import { Score } from './gameplay/score.js';
+import { Missions, MODES } from './gameplay/missions.js';
 import { Hud } from './ui/hud.js';
 import { Minimap } from './ui/minimap.js';
 import { setupTouchControls } from './ui/touch.js';
@@ -76,6 +78,19 @@ export class Game {
     });
     setupTouchControls(this.input);
 
+    // Gameplay: score / money and the selected mission mode.
+    this.score = new Score(this.hud);
+    this.missions = new Missions({
+      scene, layout: this.layout, peds: this.peds, car: this.car, score: this.score, hud: this.hud,
+    });
+    this.missions.onTeleport = () => {
+      this.skidMarks.clear();
+      this.cameraRig.snap();
+    };
+    this.mode = this.prefs.mode in MODES ? this.prefs.mode : 'free';
+    this._modeStarted = null;
+    this.time = 0;
+
     this._bindActions();
     handleResize(this.renderer, camera, () => this.garage.resize());
 
@@ -105,7 +120,19 @@ export class Game {
     this.audio.setPaused(false);
     this.hud.show();
     if (this.cameraRig.mode === 'cinematic') this.cameraRig.modeIndex = 0;
+    // (Re)start the mission when entering play or after changing mode.
+    if (this._modeStarted !== this.mode) {
+      this._modeStarted = this.mode;
+      this.score.resetSession();
+      this.missions.setMode(this.mode);
+    }
     this.cameraRig.snap();
+  }
+
+  /** Main menu mode selector. */
+  setMode(mode) {
+    this.mode = mode in MODES ? mode : 'free';
+    savePrefs({ mode: this.mode });
   }
 
   /** Open the garage from the main menu ('menu') or the pause menu ('pause'). */
@@ -155,6 +182,9 @@ export class Game {
     this.traffic.clear();
     this.traffic.populate(this.car.physics.x, this.car.physics.z);
     this.peds.populate(this.car.physics.x, this.car.physics.z);
+    this.car.repair();
+    this.score.resetSession();
+    this.missions.restart();
     this.cameraRig.snap();
     this.setPaused(false);
     this.hud.toast('Restarted');
@@ -185,11 +215,20 @@ export class Game {
     });
     on('cycle', () => this.hud.toast(this.dayNight.toggleAuto() ? 'Time cycle on' : 'Time cycle paused'));
     on('mute', () => this.hud.toast(this.audio.toggleMute() ? 'Sound off' : 'Sound on'));
+    // R: repair any damage (paid from the wallet when possible) and put the
+    // car back on the nearest road.
     on('reset', () => {
+      const dmg = this.car.damage.level;
       this.car.resetToRoad();
       this.skidMarks.last[0] = this.skidMarks.last[1] = null;
       this.cameraRig.snap();
-      this.hud.toast('Car reset');
+      if (dmg > 0.02) {
+        this.car.repair();
+        this.score.spend(dmg * CONFIG.missions.repairCostPerDamage, 'Repair');
+        this.hud.toast('Car repaired');
+      } else {
+        this.hud.toast('Car reset');
+      }
     });
     on('pause', () => {
       if (this.state === 'playing') this.setPaused(true);
@@ -231,7 +270,9 @@ export class Game {
   /** The player knocked someone over (they get up again a few seconds later). */
   _pedestrianHit(ped, speed) {
     this.audio.impact(Math.min(4 + speed * 0.3, 8));
-    this.hud.toast(`Pedestrian hit! -${CONFIG.pedestrians.hitPenalty}`, 2);
+    this.hud.toast('Watch out for pedestrians!', 2);
+    this.score.add(-CONFIG.pedestrians.hitPenalty, 'Pedestrian hit');
+    this.missions.onPedestrianHit();
   }
 
   /** An AI vehicle honks: volume falls off with distance to the player. */
@@ -241,6 +282,23 @@ export class Game {
     const pitch = v.shape.type === 'bus' || v.shape.type === 'truck' ? 0.7
       : v.shape.type === 'motorbike' || v.shape.type === 'tuktuk' ? 1.5 : 1;
     this.audio.honk(Math.min(1, 12 / Math.max(d, 4)) * 0.8, pitch, 0.35);
+  }
+
+  /** HUD arrow toward the current mission target, relative to the view direction. */
+  _updateWaypoint() {
+    const t = this.missions.target;
+    if (!t) {
+      this.hud.setWaypoint(null);
+      return;
+    }
+    const p = this.car.physics;
+    const dx = t.x - p.x;
+    const dz = t.z - p.z;
+    // View heading: the camera yaw (top-down / chase follow the car).
+    const h = this.cameraRig.mode === 'cinematic' ? p.heading : this.cameraRig.yaw;
+    const fwd = dx * Math.sin(h) + dz * Math.cos(h);
+    const right = -dx * Math.cos(h) + dz * Math.sin(h);
+    this.hud.setWaypoint(Math.atan2(right, fwd), Math.hypot(dx, dz));
   }
 
   setPaused(paused) {
@@ -277,7 +335,8 @@ export class Game {
     this.lights.update(dt);
     this.traffic.update(dt, pl);
     if (this.state === 'playing' && this.lights.checkPlayer(p.x, p.z, p.vx, p.vz)) {
-      this.hud.toast(`Red light! -${CONFIG.trafficLights.redLightPenalty}`, 2);
+      this.hud.toast('You ran a red light!', 2);
+      this.score.add(-CONFIG.trafficLights.redLightPenalty, 'Red light');
     }
     if (car.lastHit) {
       car.lastHit.bumped = 1.5; // AI car stops briefly after being hit
@@ -288,6 +347,10 @@ export class Game {
     if (impact > 1.5) {
       this.audio.impact(impact);
       this.cameraRig.addShake(Math.min(impact / 15, 0.8));
+      if (this.state === 'playing' && car.applyCrash(impact) > 0.05) {
+        this.score.add(-CONFIG.missions.crashPenalty, 'Crash');
+        this.missions.onCrash();
+      }
     }
 
     // Lighting first (other systems read the night factor).
@@ -301,6 +364,12 @@ export class Game {
     this.trafficRenderer.update(night, this.camera.position, dt);
     this.peds.update(dt, pl, this.camera.position, night);
     this.pedRenderer.update(dt, this.camera);
+    car.damage.update(dt, car, this.renderer.domElement.clientHeight);
+    this.time += dt;
+    if (this.state === 'playing') {
+      this.missions.update(dt, p.speed, this.time);
+      this.score.updateDrift(dt, p);
+    }
 
     if (this.state === 'playing' || this.state === 'paused') {
       this.hud.update(frameDt, {
@@ -314,7 +383,11 @@ export class Game {
         trafficCount: this.traffic.vehicles.length,
         muted: this.audio.muted,
       });
-      this.minimap.update(p, this.traffic.cars);
+      this.minimap.update(p, this.traffic.cars, this.missions.markers);
+      this.hud.setScore(MODES[this.mode], this.score.points, this.score.money);
+      this.hud.setDamage(car.damage.level);
+      this.hud.setIndicators(car.blinkOn && (car.indicator === -1 || car.indicator === 2), car.blinkOn && car.indicator >= 1);
+      this._updateWaypoint();
       this.audio.update(p.rpm, p.throttle, p.skid, p.speed);
     }
   }

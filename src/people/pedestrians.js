@@ -26,7 +26,8 @@ const IDLE = 4;
 const FLEE = 5;
 const FALLEN = 6;
 const GETUP = 7;
-export const PED_STATE = { WALK, TO_KERB, WAIT, CROSS, IDLE, FLEE, FALLEN, GETUP };
+const BOARD = 8;
+export const PED_STATE = { WALK, TO_KERB, WAIT, CROSS, IDLE, FLEE, FALLEN, GETUP, BOARD };
 
 const KERB = 0.5;       // waiting / arrival point, distance in from the kerb
 const ZEBRA = 1.8;      // crosswalk centre line, distance in from the block edge
@@ -219,6 +220,45 @@ export class Pedestrians {
     this.count = n;
   }
 
+  // ------------------------------------------------------------ taxi fares
+  /** A waving passenger standing at (x, z) facing `yaw`. Never recycled. */
+  spawnFare(x, z, yaw) {
+    const p = this._newPed();
+    p.x = x;
+    p.z = z;
+    p.yaw = yaw;
+    p.scale = Math.max(p.scale, 0.92);
+    p.fare = true;
+    p.waving = true;
+    p.state = IDLE;
+    p.timer = Infinity;
+    this._clampToSidewalk(p);
+    this.list.unshift(p);
+    return p;
+  }
+
+  /** The passenger walks to the car door and disappears inside. */
+  boardFare(p, carX, carZ) {
+    p.waving = false;
+    p.state = BOARD;
+    p.tx = carX;
+    p.tz = carZ;
+  }
+
+  /** Passenger leaves (delivered or gave up) and becomes a normal pedestrian. */
+  releaseFare(p, x = p.x, z = p.z) {
+    p.fare = false;
+    p.waving = false;
+    p.hidden = false;
+    p.x = x;
+    p.z = z;
+    p.onRoad = false;
+    p.cross = null;
+    this._clampToSidewalk(p);
+    p.state = WALK;
+    this._pickCornerAhead(p);
+  }
+
   /** Fill the pool around a point (game start / restart). */
   populate(px, pz) {
     this.list.length = 0;
@@ -294,6 +334,12 @@ export class Pedestrians {
 
   /** Back to normal behaviour after fleeing / getting up. */
   _resume(p) {
+    if (p.fare) {
+      // A waiting passenger goes back to waiting (and waving).
+      p.state = IDLE;
+      p.timer = Infinity;
+      return;
+    }
     if (p.cross && (p.resume === CROSS || p.onRoad)) {
       // Mid-crossing: hurry to whichever kerb is closer.
       const cr = p.cross;
@@ -412,8 +458,10 @@ export class Pedestrians {
     const speed = Math.hypot(player.vx, player.vz);
     const ahead = { x: Math.sin(player.heading), z: Math.cos(player.heading) };
 
-    // Pool size follows the quality setting.
-    while (this.list.length > this.count) this.list.pop();
+    // Pool size follows the quality setting (fare passengers are kept).
+    for (let k = this.list.length - 1; k >= 0 && this.list.length > this.count; k--) {
+      if (!this.list[k].fare) this.list.splice(k, 1);
+    }
     for (let k = 0; this.list.length < this.count && k < 3; k++) {
       const p = this._newPed();
       if (this._place(p, player.x, player.z, rMin, rMax, ahead)) this.list.push(p);
@@ -421,9 +469,14 @@ export class Pedestrians {
 
     const draw2 = cfg.drawDistance ** 2;
     for (const p of this.list) {
+      if (p.hidden) {
+        p.visible = false;
+        p.onRoad = false;
+        continue;
+      }
       const dpx = p.x - player.x;
       const dpz = p.z - player.z;
-      if (dpx * dpx + dpz * dpz > cfg.despawnRadius ** 2 && p.state !== FALLEN) {
+      if (dpx * dpx + dpz * dpz > cfg.despawnRadius ** 2 && p.state !== FALLEN && !p.fare) {
         this._place(p, player.x, player.z, rMin, rMax, ahead);
       }
       p.hitCooldown -= dt;
@@ -533,6 +586,9 @@ export class Pedestrians {
           p.state = GETUP;
           p.timer = 0.9;
         }
+        break;
+      case BOARD:
+        if (this._moveTo(p, p.walkSpeed * 1.3, dt) || Math.hypot(p.tx - p.x, p.tz - p.z) < 1.6) p.hidden = true;
         break;
       case GETUP:
         p.fall = Math.max(0, p.fall - dt * 1.3);
