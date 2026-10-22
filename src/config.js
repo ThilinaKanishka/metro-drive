@@ -143,6 +143,27 @@ export const CONFIG = {
     },
   },
 
+  pedestrians: {
+    count: 120,                // people kept alive around the player
+    walkSpeed: [1.1, 1.6],     // m/s
+    runSpeed: 4.2,
+    spawnRadius: [45, 150],    // respawn ring around the player
+    despawnRadius: 180,
+    drawDistance: 120,         // not drawn beyond this
+    animDistance: 60,          // limbs animate only within this distance
+    idleChance: 0.18,          // standing at a shop front / bus stop
+    nightIdleChance: 0.4,      // more people hang around lit shops at night
+    crossChance: 0.55,         // at a corner: cross the street vs. walk on
+    scareDistance: 2.6,        // jump back if a car will pass closer than this
+    honkRadius: 22,
+    fallTime: 3.5,             // seconds lying down after being hit
+    hitPenalty: 250,
+    skin: [0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524, 0x5c3a1e, 0xffdbac],
+    hair: [0x1b1b1b, 0x3b2314, 0x6a4423, 0xb08440, 0xd9c08a, 0x8a8a8a, 0x7a1f1f],
+    tops: [0xd23a3a, 0x2f6fd6, 0xf2f2f2, 0x2b2d33, 0xf0c419, 0x3aa856, 0xe07b2a, 0x8e5bd6, 0x37b7c9, 0xe86fa8, 0x6b7a3a],
+    bottoms: [0x22262e, 0x2c3e66, 0x55463a, 0x7a7f87, 0x1d1d1d, 0x3f5d3a, 0xb8a98a],
+  },
+
   trafficLights: {
     green: 12,                 // seconds per axis
     yellow: 3,

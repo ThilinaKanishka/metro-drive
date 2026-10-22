@@ -12,6 +12,9 @@ import { SkidMarks } from './vehicle/skidMarks.js';
 import { Traffic } from './traffic/traffic.js';
 import { TrafficRenderer } from './traffic/trafficRenderer.js';
 import { TrafficLights } from './traffic/trafficLights.js';
+import { Pedestrians } from './people/pedestrians.js';
+import { PedestrianRenderer } from './people/pedestrianRenderer.js';
+import { carCircles } from './vehicle/collision.js';
 import { Hud } from './ui/hud.js';
 import { Minimap } from './ui/minimap.js';
 import { setupTouchControls } from './ui/touch.js';
@@ -53,6 +56,11 @@ export class Game {
     this.traffic.populate(this.car.physics.x, this.car.physics.z);
     this.trafficRenderer = new TrafficRenderer(scene, this.traffic);
     this.traffic.onHonk = (v) => this._aiHonk(v);
+    this.peds = new Pedestrians(this.layout, this.lights);
+    this.peds.populate(this.car.physics.x, this.car.physics.z);
+    this.pedRenderer = new PedestrianRenderer(scene, this.peds);
+    this.traffic.peds = this.peds.list;
+    this.peds.onHit = (ped, speed) => this._pedestrianHit(ped, speed);
 
     // Camera, UI, audio
     this.cameraRig = new CameraRig(camera, this.car, this.layout);
@@ -71,7 +79,7 @@ export class Game {
     this._bindActions();
     handleResize(this.renderer, camera, () => this.garage.resize());
 
-    this._player = { x: 0, z: 0, heading: 0, vx: 0, vz: 0 };
+    this._player = { x: 0, z: 0, heading: 0, vx: 0, vz: 0, circles: [] };
     this.loop = new Loop({
       fixedUpdate: (dt) => this.fixedUpdate(dt),
       update: (dt, frameDt) => this.update(dt, frameDt),
@@ -146,6 +154,7 @@ export class Game {
     this.skidMarks.clear();
     this.traffic.clear();
     this.traffic.populate(this.car.physics.x, this.car.physics.z);
+    this.peds.populate(this.car.physics.x, this.car.physics.z);
     this.cameraRig.snap();
     this.setPaused(false);
     this.hud.toast('Restarted');
@@ -187,7 +196,11 @@ export class Game {
       else if (this.state === 'paused') this.setPaused(false);
     });
     on('fps', () => this.hud.toggleFps());
-    on('horn', () => this.audio.honk(1, this.car.cfg.mass < 800 ? 1.5 : 1));
+    on('horn', () => {
+      const p = this.car.physics;
+      this.audio.honk(1, this.car.cfg.mass < 800 ? 1.5 : 1);
+      this.peds.honk(p.x, p.z, p.heading);
+    });
     on('indicatorLeft', () => this.car.toggleIndicator(-1));
     on('indicatorRight', () => this.car.toggleIndicator(1));
 
@@ -213,6 +226,12 @@ export class Game {
   setDensity(level) {
     this.traffic.setDensity(level);
     savePrefs({ density: this.traffic.density });
+  }
+
+  /** The player knocked someone over (they get up again a few seconds later). */
+  _pedestrianHit(ped, speed) {
+    this.audio.impact(Math.min(4 + speed * 0.3, 8));
+    this.hud.toast(`Pedestrian hit! -${CONFIG.pedestrians.hitPenalty}`, 2);
   }
 
   /** An AI vehicle honks: volume falls off with distance to the player. */
@@ -254,6 +273,7 @@ export class Game {
     pl.heading = p.heading;
     pl.vx = p.vx;
     pl.vz = p.vz;
+    pl.circles = carCircles(p.x, p.z, p.heading, pl.circles, car.cfg.circles);
     this.lights.update(dt);
     this.traffic.update(dt, pl);
     if (this.state === 'playing' && this.lights.checkPlayer(p.x, p.z, p.vx, p.vz)) {
@@ -279,6 +299,8 @@ export class Game {
     this.dayNight.update(dt, car.position, this.camera);
     this.city.update(night);
     this.trafficRenderer.update(night, this.camera.position, dt);
+    this.peds.update(dt, pl, this.camera.position, night);
+    this.pedRenderer.update(dt, this.camera);
 
     if (this.state === 'playing' || this.state === 'paused') {
       this.hud.update(frameDt, {
